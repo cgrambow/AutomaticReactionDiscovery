@@ -14,13 +14,7 @@ import subprocess
 import os
 import warnings
 
-###############################################################################
-
-class GaussianError(Exception):
-    """
-    An exception class for errors that occur while using Gaussian.
-    """
-    pass
+import gaussian
 
 ###############################################################################
 
@@ -48,7 +42,7 @@ class Node(object):
     def __init__(self, coordinates, number, multiplicity=1):
         self.coordinates = np.array(coordinates).flatten()
         self.number = [int(round(num, 0)) for num in number]
-        assert len(coordinates) == 3 * len(number)
+        assert len(self.coordinates) == 3 * len(number)
         self.multiplicity = multiplicity
 
     def __str__(self):
@@ -70,8 +64,8 @@ class Node(object):
         dist = other.coordinates - self.coordinates
         return dist / np.linalg.norm(dist)
 
-    def executeGaussianForce(self, name='forceJob', ver='g09', level_of_theory='um062x/cc-pvtz',
-                             nproc=32, mem='1500mb'):
+    def executeGaussianJob(self, name='forceJob', jobtype='force', ver='g09', level_of_theory='um062x/cc-pvtz',
+                           nproc=32, mem='1500mb'):
         """
         Execute 'force' job type using the Gaussian software package. This
         method can only be run on a UNIX system where Gaussian is installed.
@@ -85,7 +79,7 @@ class Node(object):
             f.write('%chk=' + name + '.chk\n')
             f.write('%mem=' + mem + '\n')
             f.write('%nprocshared=' + str(int(nproc)) + '\n')
-            f.write('# force ' + level_of_theory + '\n\n')
+            f.write('# ' + jobtype + ' ' + level_of_theory + '\n\n')
             f.write(name + '\n\n')
             f.write('0 ' + str(self.multiplicity) + '\n')
 
@@ -114,45 +108,15 @@ class Node(object):
                 gaussian_output = f.readlines()
             for line in gaussian_output:
                 if 'Error termination' in line:
-                    raise GaussianError('Force job terminated with an error')
+                    raise gaussian.GaussianError('Force job terminated with an error')
                 elif 'Normal termination' in line:
                     completed = True
             if not completed:
-                raise GaussianError('Force job did not terminate')
+                raise gaussian.GaussianError('Force job did not terminate')
             else:
                 return output_file
         else:
             raise IOError('Gaussian output file could not be found')
-
-    def getEnergy(self, logfile='forceJob.log'):
-        """
-        Extract and return energy (in Hartrees) from Gaussian force job.
-        """
-        with open(logfile, 'r') as f:
-            for line in f:
-                if 'SCF Done' in line:
-                    return float(line.split()[4])
-            else:
-                raise GaussianError('Energy could not be found in Gaussian logfile')
-
-    def getGradient(self, logfile='forceJob.log'):
-        """
-        Extract and return gradient (forces) from Gaussian force job. Results
-        are returned as a 3N x 1 array in units of Hartrees/Angstrom.
-        """
-        with open(logfile, 'r') as f:
-            gaussian_output = f.read().splitlines()
-        for line_num, line in enumerate(gaussian_output):
-            if 'Forces (Hartrees/Bohr)' in line:
-                force_mat_str = gaussian_output[line_num+3:line_num+3+len(self.number)]
-                break
-        else:
-            raise GaussianError('Forces could not be found in Gaussian logfile')
-
-        force_mat = np.array([])
-        for row in force_mat_str:
-            force_mat = np.append(force_mat, [float(force_comp) for force_comp in row.split()[-3:]])
-        return 1.88972613 * force_mat.flatten()
 
     def perpOpt(self, other, nsteps=4, min_desired_energy_change=2.5, line_search_factor = 0.7,
                 gaussian_ver='g09', level_of_theory='um062x/cc-pvtz', nproc=32, mem='1500mb'):
@@ -161,6 +125,8 @@ class Node(object):
         Newton-Raphson method with a BFGS Hessian update scheme. Requires input
         of closest node at the other end of the string so that the appropriate
         tangent vector and perpendicular gradient can be calculated.
+
+        Returns the energy of the optimized node.
 
         Set `min_desired_energy_change` to the energy difference between
         reactant and product if the difference is less than 2.5 kcal/mol.
@@ -173,14 +139,28 @@ class Node(object):
         min_desired_energy_change /= 627.5095
 
         # Calculate gradient and energy
-        logfile = self.executeGaussianForce('step_1', gaussian_ver, level_of_theory, nproc, mem)
-        grad = self.getGradient(logfile)
-        energy = self.getEnergy(logfile)
+        logfile = self.executeGaussianJob('step_1', 'force', gaussian_ver, level_of_theory, nproc, mem)
+        grad = gaussian.getGradient(logfile)
+        print 'Gradient:'
+        print grad
+        print '\n'
+        energy = gaussian.getEnergy(logfile)
+        print 'Energy:'
+        print energy
+        print '\n'
         energy_old = energy
         os.remove(logfile)
 
         # Calculate perpendicular gradient
-        perp_grad = (identity_mat - tangent.dot(tangent.T)).dot(grad)
+        perp_grad = (identity_mat - np.outer(tangent, tangent)).dot(grad)
+        print 'Perpendicular gradient:'
+        print perp_grad
+        print '\n'
+
+        # Create empty arrays for storing old values
+        coordinates_old = np.empty_like(self.coordinates)
+        perp_grad_old = np.empty_like(perp_grad)
+        hessian_inv_old = np.empty_like(hessian_inv)
 
         k = 1
         unstable = False
@@ -189,12 +169,15 @@ class Node(object):
             direction = hessian_inv.dot(perp_grad)
             direction_norm = np.linalg.norm(direction)
             search_dir = - direction / direction_norm
+            print 'Search direction:'
+            print search_dir
+            print '\n'
 
             # Calculate scaling factor
             scale_factor_max = 0.05 / np.absolute(search_dir).max()
             scale_factor_min = 1.0 - line_search_factor * direction_norm
             desired_energy_change = max(abs(energy - energy_old), min_desired_energy_change)
-            line_search_term = perp_grad.T.dot(search_dir)
+            line_search_term = perp_grad.dot(search_dir)
             scale_factor = - 2.0 * desired_energy_change / line_search_term
             if scale_factor < scale_factor_min < scale_factor_max:
                 scale_factor = scale_factor_min
@@ -207,44 +190,81 @@ class Node(object):
                     break
                 unstable = True
                 hessian_inv = identity_mat
+                print 'Skipped remainder of loop.\n'
                 continue
             unstable = False
+            print 'Scaling factor:'
+            print scale_factor
+            print '\n'
 
             # Update
-            coordinates_old = self.coordinates
-            perp_grad_old = perp_grad
+            np.copyto(coordinates_old, self.coordinates)
+            print 'Old coordinates:'
+            print coordinates_old
+            print '\n'
+            np.copyto(perp_grad_old, perp_grad)
+            np.copyto(hessian_inv_old, hessian_inv)
             energy_old = energy
-            hessian_inv_old = hessian_inv
 
             # Take minimization step
             self.coordinates += scale_factor * search_dir
+            print 'Coordinates:'
+            print self.coordinates
+            print '\n'
 
             # Terminate after maximum number of gradient calls
             if k == nsteps:
+                logfile = self.executeGaussianJob('final_energy', 'sp', gaussian_ver, level_of_theory, nproc, mem)
+                energy = gaussian.getEnergy(logfile)
                 break
 
             # Calculate new gradient and energy
             name = 'step_' + str(k+1)
-            logfile = self.executeGaussianForce(name, gaussian_ver, level_of_theory, nproc, mem)
-            grad = self.getGradient(logfile)
-            energy = self.getEnergy(logfile)
+            logfile = self.executeGaussianJob(name, 'force', gaussian_ver, level_of_theory, nproc, mem)
+            grad = gaussian.getGradient(logfile)
+            print 'Gradient:'
+            print grad
+            print '\n'
+            energy = gaussian.getEnergy(logfile)
+            print 'Energy:'
+            print energy
+            print '\n'
             os.remove(logfile)
 
             # Calculate perpendicular gradient
-            perp_grad = (identity_mat - tangent.dot(tangent.T)).dot(grad)
+            perp_grad = (identity_mat - np.outer(tangent, tangent)).dot(grad)
+            print 'Perpendicular gradient:'
+            print perp_grad
+            print '\n'
 
             # Check remaining termination conditions
             energy_change = abs(energy - energy_old)
             if (energy_change < 0.5 / 627.5095 or
-                        abs(perp_grad.T.dot(search_dir)) <= - line_search_factor * line_search_term):
+                    abs(perp_grad.dot(search_dir)) <= - line_search_factor * line_search_term):
                 break
 
             # Update inverse Hessian
             perp_grad_change = perp_grad - perp_grad_old
+            print 'Coordinates:'
+            print self.coordinates
+            print 'Old coordinates:'
+            print coordinates_old
+            print '\n'
             step = self.coordinates - coordinates_old
-            denom = step.T.dot(perp_grad_change)
-            hessian_inv += (1.0 + perp_grad_change.T.dot((hessian_inv_old.dot(perp_grad_change))) / denom) * \
-                           step.dot(step.T) / denom - (step.dot(perp_grad_change.T).dot(hessian_inv_old) +
-                                                       hessian_inv_old.dot(perp_grad_change).dot(step.T)) / denom
+            denom = step.dot(perp_grad_change)
+            print 'Hessian inverse:'
+            print hessian_inv_old
+            print 'Perpendicular gradient change:'
+            print perp_grad_change
+            print 'Step'
+            print step
+            print 'Denominator in gradient expression:'
+            print denom
+            hessian_inv += (1.0 + perp_grad_change.dot((hessian_inv_old.dot(perp_grad_change))) / denom) * \
+                np.outer(step, step) / denom - (np.outer(step, perp_grad_change.dot(hessian_inv_old)) +
+                                                np.outer(hessian_inv_old.dot(perp_grad_change), step)) / denom
 
+            # Update counter
             k += 1
+
+        return energy
