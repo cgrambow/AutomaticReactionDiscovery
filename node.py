@@ -59,8 +59,10 @@ class Node(object):
     def getTangent(self, other):
         """
         Calculate and return tangent direction between two nodes based on LST
-        path between the nodes. The tangent vector points from self to other.
+        path between the nodes. The tangent vector points from `self` to
+        `other`, which are both of type :class:`node.Node`.
         """
+        assert len(self.coordinates) == len(other.coordinates)
         dist = other.coordinates - self.coordinates
         return dist / np.linalg.norm(dist)
 
