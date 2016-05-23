@@ -9,10 +9,8 @@ using quantum chemical calculations.
 
 import numpy as np
 
-from sys import platform as _platform
-import subprocess
 import os
-import warnings
+import logging
 
 import gaussian
 
@@ -26,23 +24,25 @@ class Node(object):
     =============== ======================= ===================================
     Attribute       Type                    Description
     =============== ======================= ===================================
-    `coordinates`   :class:`numpy.ndarray`  A 3N x 1 array containing the 3D coordinates of each atom (in Angstrom)
-    `number`        :class:`list`           A list of length N containing the integer atomic number of each atom
+    `coordinates`   :class:`numpy.ndarray`  A 3N x 3 array containing the 3D coordinates of each atom (in Angstrom)
+    `number`        :class:`tuple`          A tuple of length N containing the integer atomic number of each atom
     `multiplicity`  ``int``                 The multiplicity of this species, multiplicity = 2*total_spin+1
     =============== ======================= ===================================
 
-    N is the total number of atoms in the molecule. The integer index of each
-    atom corresponds to three subsequent entries in the coordinates vector,
-    which represent the set of x, y, and z coordinates of the atom.
+    N is the total number of atoms in the molecule. Each row in the coordinate
+    array represents one atom.
     """
 
     # Dictionary of elements corresponding to atomic numbers
     elements = {1: 'H', 5: 'B', 6: 'C', 7: 'N', 8: 'O', 9: 'F', 15: 'P', 16: 'S', 17: 'Cl', 35: 'Br', 53: 'I'}
 
     def __init__(self, coordinates, number, multiplicity=1):
-        self.coordinates = np.array(coordinates).flatten()
-        self.number = [int(round(num, 0)) for num in number]
-        assert len(self.coordinates) == 3 * len(number)
+        try:
+            self.coordinates = np.array(coordinates).reshape(len(number), 3)
+        except ValueError:
+            print 'One or more atoms are missing a coordinate'
+            raise
+        self.number = tuple([int(round(num, 0)) for num in number])
         self.multiplicity = multiplicity
 
     def __str__(self):
@@ -50,101 +50,86 @@ class Node(object):
         Return a human readable string representation of the object
         """
         return_string = ''
-        coord_array = self.coordinates.reshape(len(self.number), 3)
-        for atom_num, atom in enumerate(coord_array):
-            coords = [str(coord) for coord in atom]
-            return_string += self.elements[self.number[atom_num]] + '    ' + '  '.join(coords) + '\n'
+        for atom_num, atom in enumerate(self.coordinates):
+            return_string += '{0}  {1[0]: 14.8f}{1[1]: 14.8f}{1[2]: 14.8f}\n'.format(
+                self.elements[self.number[atom_num]], atom)
         return return_string[:-1]
 
-    def getTangent(self, other):
+    def __repr__(self):
+        """
+        Return a representation of the object.
+        """
+        return 'Node({coords}, {self.number}, {self.multiplicity})'.format(coords=self.coordinates.tolist(), self=self)
+
+    def getCentroid(self):
+        """
+        Compute and return non-mass weighted centroid of molecular
+        configuration.
+        """
+        return self.coordinates.sum(axis=0) / float(len(self.number))
+
+    def translate(self, trans_vec):
+        """
+        Translate all atoms in the molecular configuration by `trans_vec`,
+        which is of type :class:`numpy.ndarray` and of size 3 x 1.
+        """
+        self.coordinates += trans_vec
+
+    def rotate(self, rot_mat):
+        """
+        Rotate molecular configuration using orthogonal rotation matrix
+        `rot_mat` which is of type :class:`numpy.ndarray` and of size 3 x 3.
+
+        The node should first be translated to the origin, since rotation
+        matrices can only describe rotations about the origin.
+        """
+        self.coordinates = (rot_mat.dot(self.coordinates.T)).T
+
+    def getEnergy(self, gaussian_ver='g09', level_of_theory='um062x/cc-pvtz', nproc=32, mem='1500mb'):
+        """
+        Compute and return energy of node.
+        """
+        logfile = gaussian.executeGaussianJob(self, 'energy', 'sp', gaussian_ver, level_of_theory, nproc, mem)
+        energy = gaussian.getEnergy(logfile)
+        os.remove(logfile)
+        return energy
+
+    def getLSTtangent(self, other):
         """
         Calculate and return tangent direction between two nodes based on LST
         path between the nodes. The tangent vector points from `self` to
         `other`, which are both of type :class:`node.Node`.
         """
-        assert len(self.coordinates) == len(other.coordinates)
-        dist = other.coordinates - self.coordinates
-        return dist / np.linalg.norm(dist)
+        self_coord_vec = self.coordinates.flatten()
+        other_coord_vec = other.coordinates.flatten()
+        assert len(self_coord_vec) == len(other_coord_vec)
+        diff = other_coord_vec - self_coord_vec
+        return diff / np.linalg.norm(diff)
 
-    def executeGaussianJob(self, name='forceJob', jobtype='force', ver='g09', level_of_theory='um062x/cc-pvtz',
-                           nproc=32, mem='1500mb'):
-        """
-        Execute 'force' job type using the Gaussian software package. This
-        method can only be run on a UNIX system where Gaussian is installed.
-        Return filename of Gaussian logfile.
-        """
-        coord_array = self.coordinates.reshape(len(self.number), 3)
-
-        # Create Gaussian input file
-        input_file = name + '.com'
-        with open(input_file, 'w') as f:
-            f.write('%chk=' + name + '.chk\n')
-            f.write('%mem=' + mem + '\n')
-            f.write('%nprocshared=' + str(int(nproc)) + '\n')
-            f.write('# ' + jobtype + ' ' + level_of_theory + '\n\n')
-            f.write(name + '\n\n')
-            f.write('0 ' + str(self.multiplicity) + '\n')
-
-            for atom_num, atom in enumerate(coord_array):
-                f.write(self.elements[self.number[atom_num]] + '                 ')
-                for coord in atom:
-                    f.write(str(coord) + '    ')
-                f.write('\n')
-
-            f.write('\n')
-
-        # Run job and wait until termination
-        if _platform == 'linux' or _platform == 'linux2':
-            output_file = name + '.log'
-            subprocess.Popen([ver, input_file, output_file]).wait()
-            os.remove(input_file)
-            os.remove(name + '.chk')
-        else:
-            os.remove(input_file)
-            raise OSError('Invalid operating system')
-
-        # Check if job completed or if it terminated with an error
-        if os.path.isfile(output_file):
-            completed = False
-            with open(output_file, 'r') as f:
-                gaussian_output = f.readlines()
-            for line in gaussian_output:
-                if 'Error termination' in line:
-                    raise gaussian.GaussianError('Force job terminated with an error')
-                elif 'Normal termination' in line:
-                    completed = True
-            if not completed:
-                raise gaussian.GaussianError('Force job did not terminate')
-            else:
-                return output_file
-        else:
-            raise IOError('Gaussian output file could not be found')
-
-    def perpOpt(self, other, nsteps=4, min_desired_energy_change=2.5, line_search_factor = 0.7,
+    def perpOpt(self, tangent, nsteps=4, min_desired_energy_change=2.5, line_search_factor=0.7,
                 gaussian_ver='g09', level_of_theory='um062x/cc-pvtz', nproc=32, mem='1500mb'):
         """
         Optimize node in direction of negative perpendicular gradient using the
         Newton-Raphson method with a BFGS Hessian update scheme. Requires input
-        of closest node at the other end of the string so that the appropriate
-        tangent vector and perpendicular gradient can be calculated.
+        of tangent vector between closest two nodes on the string so that the
+        appropriate perpendicular gradient can be calculated.
 
-        Returns the energy of the optimized node.
+        Returns the energy of the optimized node in Hartrees.
 
         Set `min_desired_energy_change` to the energy difference between
         reactant and product if the difference is less than 2.5 kcal/mol.
         """
         if not isinstance(nsteps, int):
             raise TypeError('nsteps has to be an integer value')
-        identity_mat = np.eye(len(self.coordinates))
-        tangent = self.getTangent(other)
+        identity_mat = np.eye(3 * len(self.number))
         hessian_inv = identity_mat
         min_desired_energy_change /= 627.5095
 
         # Calculate gradient and energy
-        logfile = self.executeGaussianJob('step_1', 'force', gaussian_ver, level_of_theory, nproc, mem)
-        grad = gaussian.getGradient(logfile)
+        logfile = gaussian.executeGaussianJob(self, 'step_1', 'force', gaussian_ver, level_of_theory, nproc, mem)
+        grad = gaussian.getGradient(logfile).flatten()
         print 'Gradient:'
-        print grad
+        print grad.reshape(len(self.number), 3)
         print '\n'
         energy = gaussian.getEnergy(logfile)
         print 'Energy:'
@@ -156,11 +141,11 @@ class Node(object):
         # Calculate perpendicular gradient
         perp_grad = (identity_mat - np.outer(tangent, tangent)).dot(grad)
         print 'Perpendicular gradient:'
-        print perp_grad
+        print perp_grad.reshape(len(self.number), 3)
         print '\n'
 
         # Create empty arrays for storing old values
-        coordinates_old = np.empty_like(self.coordinates)
+        coord_vec_old = np.empty_like(perp_grad)
         perp_grad_old = np.empty_like(perp_grad)
         hessian_inv_old = np.empty_like(hessian_inv)
 
@@ -172,7 +157,7 @@ class Node(object):
             direction_norm = np.linalg.norm(direction)
             search_dir = - direction / direction_norm
             print 'Search direction:'
-            print search_dir
+            print search_dir.reshape(len(self.number), 3)
             print '\n'
 
             # Calculate scaling factor
@@ -188,7 +173,7 @@ class Node(object):
             if scale_factor < 0.0:
                 # Terminate if resetting Hessian did not resolve instability
                 if unstable:
-                    warnings.warn('Optimization terminated due to unstable scaling factor')
+                    logging.warning('Optimization terminated due to unstable scaling factor')
                     break
                 unstable = True
                 hessian_inv = identity_mat
@@ -200,32 +185,33 @@ class Node(object):
             print '\n'
 
             # Update
-            np.copyto(coordinates_old, self.coordinates)
+            np.copyto(coord_vec_old, self.coordinates.flatten())
             print 'Old coordinates:'
-            print coordinates_old
+            print coord_vec_old.reshape(len(self.number), 3)
             print '\n'
             np.copyto(perp_grad_old, perp_grad)
             np.copyto(hessian_inv_old, hessian_inv)
             energy_old = energy
 
             # Take minimization step
-            self.coordinates += scale_factor * search_dir
+            self.coordinates += (scale_factor * search_dir).reshape(len(self.number), 3)
             print 'Coordinates:'
-            print self.coordinates
+            print self
             print '\n'
 
             # Terminate after maximum number of gradient calls
             if k == nsteps:
-                logfile = self.executeGaussianJob('final_energy', 'sp', gaussian_ver, level_of_theory, nproc, mem)
+                logfile = gaussian.executeGaussianJob(self, 'final_energy', 'sp',
+                                                      gaussian_ver, level_of_theory, nproc, mem)
                 energy = gaussian.getEnergy(logfile)
                 break
 
             # Calculate new gradient and energy
             name = 'step_' + str(k+1)
-            logfile = self.executeGaussianJob(name, 'force', gaussian_ver, level_of_theory, nproc, mem)
-            grad = gaussian.getGradient(logfile)
+            logfile = gaussian.executeGaussianJob(self, name, 'force', gaussian_ver, level_of_theory, nproc, mem)
+            grad = gaussian.getGradient(logfile).flatten()
             print 'Gradient:'
-            print grad
+            print grad.reshape(len(self.number), 3)
             print '\n'
             energy = gaussian.getEnergy(logfile)
             print 'Energy:'
@@ -236,7 +222,7 @@ class Node(object):
             # Calculate perpendicular gradient
             perp_grad = (identity_mat - np.outer(tangent, tangent)).dot(grad)
             print 'Perpendicular gradient:'
-            print perp_grad
+            print perp_grad.reshape(len(self.number), 3)
             print '\n'
 
             # Check remaining termination conditions
@@ -248,18 +234,18 @@ class Node(object):
             # Update inverse Hessian
             perp_grad_change = perp_grad - perp_grad_old
             print 'Coordinates:'
-            print self.coordinates
+            print self
             print 'Old coordinates:'
-            print coordinates_old
+            print coord_vec_old.reshape(len(self.number), 3)
             print '\n'
-            step = self.coordinates - coordinates_old
+            step = self.coordinates.flatten() - coord_vec_old
             denom = step.dot(perp_grad_change)
             print 'Hessian inverse:'
             print hessian_inv_old
             print 'Perpendicular gradient change:'
-            print perp_grad_change
+            print perp_grad_change.reshape(len(self.number), 3)
             print 'Step'
-            print step
+            print step.reshape(len(self.number), 3)
             print 'Denominator in gradient expression:'
             print denom
             hessian_inv += (1.0 + perp_grad_change.dot((hessian_inv_old.dot(perp_grad_change))) / denom) * \

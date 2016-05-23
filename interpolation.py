@@ -9,7 +9,7 @@ interpolation paths.
 import numpy as np
 from scipy.optimize import minimize
 
-import warnings
+import logging
 
 from node import Node
 
@@ -43,20 +43,19 @@ class LST(object):
         """
         Return a human readable string representation of the object
         """
-        return 'LST path object between nodes\n' + self.node_start.__str__() + '\nand\n' + self.node_end.__str__()
+        return 'LST path object between nodes\n' + str(self.node_start) + '\nand\n' + str(self.node_end)
 
     @staticmethod
     def getDistMat(coords):
         """
-        Calculate and return distance matrix form given a vector (np.array) of
+        Calculate and return distance matrix form given a 3N x 3 array of
         Cartesian coordinates. The matrix is N x N. Only the upper diagonal
         elements contain the distances. All other elements are set to 0.
         """
-        assert len(coords) % 3 == 0
-        coord_array = coords.reshape(len(coords) / 3, 3)
-        x = coord_array[:, 0]
-        y = coord_array[:, 1]
-        z = coord_array[:, 2]
+        coords = coords.reshape(np.size(coords) / 3, 3)
+        x = coords[:, 0]
+        y = coords[:, 1]
+        z = coords[:, 2]
         dx = x[..., np.newaxis] - x[np.newaxis, ...]
         dy = y[..., np.newaxis] - y[np.newaxis, ...]
         dz = z[..., np.newaxis] - z[np.newaxis, ...]
@@ -70,15 +69,18 @@ class LST(object):
         coordinates and distance matrix coordinates are denoted by `w` and `r`,
         respectively.
         """
+        # Compute interpolated coordinates based on fraction along LST path
         r_interpolated = self.node_start_r + f * (self.node_end_r - self.node_start_r)
-        w_interpolated = self.node_start.coordinates + f * (self.node_end.coordinates - self.node_start.coordinates)
+        w_interpolated = self.node_start.coordinates.flatten() + f * (self.node_end.coordinates.flatten() -
+                                                                      self.node_start.coordinates.flatten())
+        # Get distance matrix
         r = self.getDistMat(w)
 
         distance_term = 0.0
         for d in range(1, len(self.node_start.number)):
             distance_term += np.array((r_interpolated.diagonal(d) - r.diagonal(d)) ** 2.0 /
                                       r_interpolated.diagonal(d) ** 4.0).sum()
-        cartesian_term = 1e-6 * np.array((w_interpolated - w) ** 2.0).sum()
+        cartesian_term = 1e-6 * (w_interpolated - w).dot(w_interpolated - w)
         return distance_term + cartesian_term
 
     def getLSTnode(self, f):
@@ -87,21 +89,46 @@ class LST(object):
         defined by the fractional distance along the path, `f`. A Node object
         containing the optimized Cartesian coordinates is returned.
         """
-        w_guess = self.node_start.coordinates + f * (self.node_end.coordinates - self.node_start.coordinates)
+        # Start with Cartesian interpolation guess
+        w_guess = self.node_start.coordinates.flatten() + f * (self.node_end.coordinates.flatten() -
+                                                               self.node_start.coordinates.flatten())
+        # Compute LST node by minimizing objective function
         result = minimize(self.LSTobjective, w_guess, args=(f,), method='BFGS')
         if not result.success:
-            message = 'LST minimization terminated with status ' + str(result.status) + ':\n' + result.message
-            warnings.warn(message)
+            message = 'LST minimization terminated with status ' + str(result.status) + ':\n' + result.message + '\n'
+            logging.warning(message)
         return Node(result.x, self.node_start.number, self.node_start.multiplicity)
 
     def getLSTpath(self, nnodes=100):
         """
         Generates an LST path between `node_start` and `node_end` represented
-        as a list of Node objects containing `nnodes` nodes along the path.
+        as a tuple of Node objects containing `nnodes` nodes along the path.
         `node_start` and `node_end` are included as the path endpoints.
+        Additionally, the integrated arc length along the path is returned as a
+        tuple with each element being the arc length from `node_start` to the
+        node corresponding to the element. A large enough number of nodes
+        should be used so that the arc length can be computed to sufficient
+        accuracy.
         """
         inc = 1.0 / float(nnodes - 1)
+
+        # Compute LST path and add start and end node to path
         path = [self.getLSTnode(f) for f in np.linspace(inc, 1.0 - inc, nnodes - 2)]
         path.insert(0, self.node_start)
         path.append(self.node_end)
-        return path
+
+        # Compute arc length along path
+        arclength = [0]
+        for n in range(1, len(path)):
+            diff = (path[n].coordinates - path[n-1].coordinates).flatten()
+            s = diff.dot(diff) ** 0.5
+            arclength.append(arclength[n-1] + s)
+
+        return tuple(path), tuple(arclength)
+
+    def getDistance(self, nnodes=100):
+        """
+        Returns the total arc length between the two end nodes of the LST path.
+        """
+        path, arclength = self.getLSTpath(nnodes)
+        return arclength[-1]
