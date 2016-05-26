@@ -57,7 +57,7 @@ def getGradient(logfile='forceJob.log'):
     # Read last occurrence of forces
     for line_num, line in enumerate(reversed(gaussian_output)):
         if 'Forces (Hartrees/Bohr)' in line:
-            force_mat_str = gaussian_output[-(line_num-2):-(line_num-2-natoms)]
+            force_mat_str = gaussian_output[-(line_num - 2):-(line_num - 2 - natoms)]
             break
     else:
         raise GaussianError('Forces could not be found in Gaussian logfile')
@@ -88,7 +88,7 @@ def getGeometry(logfile='optJob.log'):
     # Read last occurrence of geometry
     for line_num, line in enumerate(reversed(gaussian_output)):
         if 'Input orientation' in line:
-            coord_mat_str = gaussian_output[-(line_num-4):-(line_num-4-natoms)]
+            coord_mat_str = gaussian_output[-(line_num - 4):-(line_num - 4 - natoms)]
             break
     else:
         raise GaussianError('Geometry could not be found in Gaussian logfile')
@@ -101,8 +101,8 @@ def getGeometry(logfile='optJob.log'):
 
 ###############################################################################
 
-def executeGaussianJob(node, name='forceJob', jobtype='force', ver='g09', level_of_theory='um062x/cc-pvtz',
-                           nproc=32, mem='1500mb'):
+def executeGaussianJob(node, name='forceJob', jobtype='force', args=None, ver='g09', level_of_theory='um062x/cc-pvtz',
+                       nproc=32, mem='1500mb'):
     """
     Execute quantum job type using the Gaussian software package. This method
     can only be run on a UNIX system where Gaussian is installed. Requires that
@@ -116,7 +116,10 @@ def executeGaussianJob(node, name='forceJob', jobtype='force', ver='g09', level_
         f.write('%chk=' + name + '.chk\n')
         f.write('%mem=' + mem + '\n')
         f.write('%nprocshared=' + str(int(nproc)) + '\n')
-        f.write('# ' + jobtype + ' ' + level_of_theory + '\n\n')
+        if args is None:
+            f.write('# ' + jobtype + ' ' + level_of_theory + '\n\n')
+        else:
+            f.write('# ' + jobtype + '=(' + args + ') ' + level_of_theory + '\n\n')
         f.write(name + '\n\n')
         f.write('0 ' + str(node.multiplicity) + '\n')
 

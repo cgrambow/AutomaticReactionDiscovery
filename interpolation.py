@@ -2,20 +2,98 @@
 # -*- coding: utf-8 -*-
 
 """
-Contains the :class:`LST` for generating linear synchronous transit
-interpolation paths.
+Contains the :class:`CartesianInterp` for computing linearly interpolated
+Cartesian nodes and the :class:`LST` for generating linear synchronous transit
+interpolation paths. Additionally, two functions are defined at the beginning,
+which enable pickling and unpickling of class methods so that these can be run
+in parallel with the multiprocessing module.
 """
 
 import numpy as np
 from scipy.optimize import minimize
 
 import logging
+import multiprocessing
+import copy_reg
+import types
 
 from node import Node
 
 ###############################################################################
 
-class LST(object):
+def _pickle_method(method):
+    """
+    Pickles method.
+    """
+    func_name = method.im_func.__name__
+    obj = method.im_self
+    cls = method.im_class
+    return _unpickle_method, (func_name, obj, cls)
+
+def _unpickle_method(func_name, obj, cls):
+    """
+    Unpickles method.
+    """
+    for cls in cls.mro():
+        try:
+            func = cls.__dict__[func_name]
+        except KeyError:
+            pass
+        else:
+            break
+    return func.__get__(obj, cls)
+
+# Add functionality for pickling bound methods
+copy_reg.pickle(types.MethodType, _pickle_method, _unpickle_method)
+
+###############################################################################
+
+class CartesianInterp(object):
+    """
+    Cartesian interpolation object.
+    The attributes are:
+
+    =============== ======================== ===================================
+    Attribute       Type                     Description
+    =============== ======================== ===================================
+    `node_start`    :class:`node.Node`       A node object representing one end for the interpolation
+    `node_end`      :class:`node.Node`       A node object representing the other end
+    =============== ======================== ===================================
+
+    """
+
+    def __init__(self, node_start, node_end):
+        if node_start.number != node_end.number:
+            raise Exception('Atom labels at the start and end of LST path do not match')
+        self.node_start = node_start
+        self.node_end = node_end
+
+    def __str__(self):
+        """
+        Return a human readable string representation of the object
+        """
+        return 'Cartesian interpolation object between nodes\n' + str(self.node_start) + '\nand\n' + str(self.node_end)
+
+    def getCartNode(self, f):
+        """
+        Generates a node at fractional distance, `f`, between start and end
+        nodes computed using simple Cartesian interpolation.
+        """
+        return Node(self.node_start.coordinates + f * (self.node_end.coordinates - self.node_start.coordinates),
+                    self.node_start.number, self.node_start.multiplicity)
+
+    def getCartNodeAtDistance(self, distance):
+        """
+        Generates a node at a specified distance from `node_start`.
+        """
+        diff = self.node_end.coordinates.flatten() - self.node_start.coordinates.flatten()
+        dist_factor = diff / (diff.dot(diff)) ** 0.5
+        return Node(self.node_start.coordinates.flatten() + distance * dist_factor,
+                    self.node_start.number, self.node_start.multiplicity)
+
+###############################################################################
+
+class LST(CartesianInterp):
     """
     Contains the main functions required to generate an LST interpolation path.
     The attributes are:
@@ -31,11 +109,9 @@ class LST(object):
 
     """
 
-    def __init__(self, node_start, node_end):
-        if node_start.number != node_end.number:
-            raise Exception('Atom labels at the start and end of LST path do not match')
-        self.node_start = node_start
-        self.node_end = node_end
+    def __init__(self, node_start, node_end, nproc=1):
+        super(LST, self).__init__(node_start, node_end)
+        self.nproc = nproc
         self.node_start_r = self.getDistMat(node_start.coordinates)
         self.node_end_r = self.getDistMat(node_end.coordinates)
 
@@ -112,17 +188,20 @@ class LST(object):
         """
         inc = 1.0 / float(nnodes - 1)
 
-        # Compute LST path and add start and end node to path
-        path = [self.getLSTnode(f) for f in np.linspace(inc, 1.0 - inc, nnodes - 2)]
+        # Compute LST path in parallel and add start and end node to path
+        if self.nproc > 1:
+            pool = multiprocessing.Pool(self.nproc)
+            path = pool.map(self.getLSTnode, np.linspace(inc, 1.0 - inc, nnodes - 2))
+        else:
+            path = [self.getLSTnode(f) for f in np.linspace(inc, 1.0 - inc, nnodes - 2)]
         path.insert(0, self.node_start)
         path.append(self.node_end)
 
         # Compute arc length along path
         arclength = [0]
         for n in range(1, len(path)):
-            diff = (path[n].coordinates - path[n-1].coordinates).flatten()
-            s = diff.dot(diff) ** 0.5
-            arclength.append(arclength[n-1] + s)
+            s = path[n].getDistance(path[n - 1])
+            arclength.append(arclength[n - 1] + s)
 
         return tuple(path), tuple(arclength)
 
