@@ -10,7 +10,7 @@ in parallel with the multiprocessing module.
 """
 
 import numpy as np
-from scipy.optimize import minimize
+from scipy import optimize
 
 import logging
 import multiprocessing
@@ -169,7 +169,7 @@ class LST(CartesianInterp):
         w_guess = self.node_start.coordinates.flatten() + f * (self.node_end.coordinates.flatten() -
                                                                self.node_start.coordinates.flatten())
         # Compute LST node by minimizing objective function
-        result = minimize(self.LSTobjective, w_guess, args=(f,), method='BFGS')
+        result = optimize.minimize(self.LSTobjective, w_guess, args=(f,), method='BFGS')
         if not result.success:
             message = 'LST minimization terminated with status ' + str(result.status) + ':\n' + result.message + '\n'
             logging.warning(message)
@@ -178,10 +178,10 @@ class LST(CartesianInterp):
     def getLSTpath(self, nnodes=100):
         """
         Generates an LST path between `node_start` and `node_end` represented
-        as a tuple of Node objects containing `nnodes` nodes along the path.
+        as a list of Node objects containing `nnodes` nodes along the path.
         `node_start` and `node_end` are included as the path endpoints.
         Additionally, the integrated arc length along the path is returned as a
-        tuple with each element being the arc length from `node_start` to the
+        list with each element being the arc length from `node_start` to the
         node corresponding to the element. A large enough number of nodes
         should be used so that the arc length can be computed to sufficient
         accuracy.
@@ -203,7 +203,7 @@ class LST(CartesianInterp):
             s = path[n].getDistance(path[n - 1])
             arclength.append(arclength[n - 1] + s)
 
-        return tuple(path), tuple(arclength)
+        return path, arclength
 
     def getDistance(self, nnodes=100):
         """

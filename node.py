@@ -42,6 +42,9 @@ class Node(object):
             print 'One or more atoms are missing a coordinate'
             raise
         self.number = tuple([int(round(num, 0)) for num in number])
+        for num in self.number:
+            if num not in self.elements.keys():
+                raise ValueError('Invalid atomic number: {0}'.format(num))
         self.multiplicity = multiplicity
 
     def __str__(self):
@@ -95,7 +98,15 @@ class Node(object):
         """
         Compute and return energy of node.
         """
-        logfile = gaussian.executeGaussianJob(self, 'energy', 'sp', gaussian_ver, level_of_theory, nproc, mem)
+        logfile = gaussian.executeGaussianJob(
+            self,
+            name='energy',
+            jobtype='sp',
+            ver=gaussian_ver,
+            level_of_theory=level_of_theory,
+            nproc=nproc,
+            mem=mem
+        )
         energy = gaussian.getEnergy(logfile)
         os.remove(logfile)
         return energy

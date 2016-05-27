@@ -8,8 +8,8 @@ optimized using another method in order to find the true transition state.
 """
 
 import numpy as np
-from bisect import bisect_left
-from scipy.optimize import minimize
+from scipy import optimize
+import bisect
 
 import os
 import logging
@@ -47,7 +47,7 @@ def findClosest(a, x):
     """
     Returns index of value closest to `x` in sorted sequence `a`.
     """
-    idx = bisect_left(a, x)
+    idx = bisect.bisect_left(a, x)
     if idx == 0:
         return a[0]
     if idx == len(a):
@@ -85,6 +85,8 @@ class FSM(object):
                  gaussian_ver='g09', level_of_theory='um062x/cc-pvtz', nproc=32, mem='2000mb'):
         if reactant.number != product.number:
             raise Exception('Atom labels of reactant and product do not match')
+        if nLSTnodes < 3 * nnode:
+            raise ValueError('Increase the number of LST nodes')
         self.reactant = reactant
         self.product = product
         self.nsteps = nsteps
@@ -130,7 +132,7 @@ class FSM(object):
 
         # Find optimal rotation matrix iteratively
         angles_guess = np.array([0.0, 0.0, 0.0])
-        result = minimize(self.coincidenceObjective, angles_guess, method='BFGS')
+        result = optimize.minimize(self.coincidenceObjective, angles_guess, method='BFGS')
         if not result.success:
             message = ('Maximum coincidence alignment terminated with status ' +
                        str(result.status) + ':\n' + result.message + '\n')
@@ -158,23 +160,42 @@ class FSM(object):
         the distance between them is between one and two times the desired node
         spacing. Otherwise, two nodes are generated at the desired node spacing
         from the end nodes.
+
+        The tangent vectors at each node are also returned. For the LST path,
+        this vector is determined from the two LST nodes that are directly
+        adjacent to the interpolated node.
         """
         if self.node_spacing is None:
             raise Exception('Interpolation distance has to be set first')
 
+        # Find new nodes based on simple linear interpolation
         if self.interpolation == 'cartesian':
             total_distance = node1.getDistance(node2)
             if total_distance < self.node_spacing:
-                return None
+                return None, None
             elif self.node_spacing <= total_distance <= 2.0 * self.node_spacing:
-                return CartesianInterp(node1, node2).getCartNode(0.5)
+                return CartesianInterp(node1, node2).getCartNode(0.5), node1.getTangent(node2)
             else:
                 cart = CartesianInterp(node1, node2)
-                return (cart.getCartNodeAtDistance(self.node_spacing),
-                        cart.getCartNodeAtDistance(total_distance - self.node_spacing))
+                new_node1 = cart.getCartNodeAtDistance(self.node_spacing)
+                new_node2 = cart.getCartNodeAtDistance(total_distance - self.node_spacing)
+                tangent = new_node1.getTangent(new_node2)
+                return (new_node1, new_node2), (tangent, -tangent)
 
         # Create high density LST path between nodes
         path, arclength = LST(node1, node2, self.nproc).getLSTpath(self.nLSTnodes)
+
+        # Find new nodes based on nodes that are closest to desired arc length spacing
+        if arclength[-1] < self.node_spacing:
+            return None, None
+        elif self.node_spacing <= arclength[-1] <= 2.0 * self.node_spacing:
+            new_node_idx = findClosest(arclength, arclength[-1] / 2.0)
+            return path[new_node_idx], path[new_node_idx - 1].getTangent(path[new_node_idx + 1])
+        new_node1_idx = findClosest(arclength, self.node_spacing)
+        new_node2_idx = findClosest(arclength, arclength[-1] - self.node_spacing)
+        tangent1 = path[new_node1_idx - 1].getTangent(path[new_node1_idx + 1])
+        tangent2 = path[new_node2_idx + 1].getTangent(path[new_node2_idx - 1])
+        return (path[new_node1_idx], path[new_node2_idx]), (tangent1, tangent2)
 
         # Compute distances from node1 and node2
         # distance_from_node1 = [node1.getDistance(node) for node in path]
@@ -194,14 +215,6 @@ class FSM(object):
         # new_node2_idx = len(distance_from_node2) - 1 - findClosest(distance_from_node2[::-1], self.node_spacing)
         # return path[new_node1_idx], path[new_node2_idx]
 
-        if arclength[-1] < self.node_spacing:
-            return None
-        elif self.node_spacing <= arclength[-1] <= 2.0 * self.node_spacing:
-            return path[findClosest(arclength, arclength[-1] / 2.0)]
-        new_node1_idx = findClosest(arclength, self.node_spacing)
-        new_node2_idx = findClosest(arclength, arclength[-1] - self.node_spacing)
-        return path[new_node1_idx], path[new_node2_idx]
-
     def initialize(self):
         """
         Initialize the FSM job.
@@ -217,12 +230,17 @@ class FSM(object):
         # coincidence
         logging.info('Aligning product and reactant structure to maximum coincidence')
         distance = self.align()
-        # self.node_spacing = distance / float(self.nnode)
-        self.node_spacing = LST(self.reactant, self.product, self.nproc).getDistance(self.nLSTnodes) / float(self.nnode)
+        if self.interpolation == 'lst':
+            distance = LST(self.reactant, self.product, self.nproc).getDistance(self.nLSTnodes)
+        self.node_spacing = distance / float(self.nnode)
         logging.info('Aligned reactant structure:\n' + str(self.reactant))
         logging.info('Aligned product structure:\n' + str(self.product))
-        logging.info('Total reactant to product distance:   {0:>8.4f} Angstrom'.format(distance))
-        logging.info('Interpolation distance for new nodes: {0:>8.4f} Angstrom'.format(self.node_spacing))
+        if self.interpolation == 'cartesian':
+            logging.info('Total reactant to product distance:   {0:>8.4f} Angstrom'.format(distance))
+            logging.info('Interpolation distance for new nodes: {0:>8.4f} Angstrom'.format(self.node_spacing))
+        else:
+            logging.info('Total reactant to product arc length:   {0:>8.4f} Angstrom'.format(distance))
+            logging.info('Interpolation arc length for new nodes: {0:>8.4f} Angstrom'.format(self.node_spacing))
 
     def execute(self):
         """
@@ -269,11 +287,11 @@ class FSM(object):
 
             # Compute distance between innermost nodes
             distance = FSMpath[innernode_r_idx].getDistance(FSMpath[innernode_p_idx])
-            logging.info('Distance between innermost nodes: {0:.4f} Angstrom'.format(distance))
+            logging.info('Linear distance between innermost nodes: {0:.4f} Angstrom'.format(distance))
 
             # Obtain interpolated nodes
             start_time_interp = time.time()
-            nodes = self.getNodes(FSMpath[innernode_r_idx], FSMpath[innernode_p_idx])
+            nodes, tangents = self.getNodes(FSMpath[innernode_r_idx], FSMpath[innernode_p_idx])
             if self.interpolation == 'lst':
                 logging.info('LST interpolation completed in {0:.2f} s'.format(time.time() - start_time_interp))
 
@@ -289,23 +307,23 @@ class FSM(object):
                 logging.info('Added one node:\n' + str(nodes))
 
                 # Compute distance from reactant and product side innermost nodes
-                logging.info('Distance from innermost reactant side node: {0:>8.4f} Angstrom'.
+                logging.info('Linear distance from innermost reactant side node: {0:>8.4f} Angstrom'.
                              format(nodes.getDistance(FSMpath[innernode_r_idx])))
-                logging.info('Distance from innermost product side node:  {0:>8.4f} Angstrom'.
+                logging.info('Linear distance from innermost product side node:  {0:>8.4f} Angstrom'.
                              format(nodes.getDistance(FSMpath[innernode_p_idx])))
 
                 # Compute tangent based on previous two nodes
-                tangent = FSMpath[innernode_r_idx].getTangent(FSMpath[innernode_p_idx])
+                # tangent = FSMpath[innernode_r_idx].getTangent(FSMpath[innernode_p_idx])
 
                 # Perpendicular optimization
                 logging.info('Optimizing final node')
                 start_time_opt = time.time()
-                energy = self.perpOpt(nodes, tangent, **settings)
+                energy = self.perpOpt(nodes, tangents, **settings)
                 logging.info('Optimization completed in {0:.1f} s'.format(time.time() - start_time_opt))
                 logging.info('Optimized node:\n' + str(nodes))
                 logging.info('After opt distance from innermost reactant side node: {0:>8.4f} Angstrom'.
                              format(nodes.getDistance(FSMpath[innernode_r_idx])))
-                logging.info('After opt distance from innermost product side node: {0:>8.4f} Angstrom'.
+                logging.info('After opt distance from innermost product side node:  {0:>8.4f} Angstrom'.
                              format(nodes.getDistance(FSMpath[innernode_p_idx])))
                 logging.info('')
 
@@ -322,27 +340,27 @@ class FSM(object):
                 logging.info('Added two nodes:\n' + str(nodes[0]) + '\n****\n' + str(nodes[1]))
 
                 # Compute distance from reactant and product side innermost nodes
-                logging.info('Distance between previous and current reactant side nodes: {0:>8.4f} Angstrom'.
+                logging.info('Linear distance between previous and current reactant side nodes: {0:>8.4f} Angstrom'.
                              format(nodes[0].getDistance(FSMpath[innernode_r_idx])))
-                logging.info('Distance between previous and current product side nodes:  {0:>8.4f} Angstrom'.
+                logging.info('Linear distance between previous and current product side nodes:  {0:>8.4f} Angstrom'.
                              format(nodes[1].getDistance(FSMpath[innernode_p_idx])))
 
                 # Compute tangent based on new nodes
-                tangent = nodes[0].getTangent(nodes[1])
+                # tangent = nodes[0].getTangent(nodes[1])
 
                 # Perpendicular optimization
                 logging.info('Optimizing new reactant side node')
                 start_time_opt = time.time()
-                energy0 = self.perpOpt(nodes[0], tangent, nodes[1], **settings)
+                energy0 = self.perpOpt(nodes[0], tangents[0], nodes[1], **settings)
                 logging.info('Optimization completed in {0:.1f} s'.format(time.time() - start_time_opt))
                 logging.info('Optimizing new product side node')
                 start_time_opt = time.time()
-                energy1 = self.perpOpt(nodes[1], tangent, nodes[0], **settings)
+                energy1 = self.perpOpt(nodes[1], tangents[1], nodes[0], **settings)
                 logging.info('Optimization completed in {0:.1f} s'.format(time.time() - start_time_opt))
                 logging.info('Optimized nodes:\n' + str(nodes[0]) + '\n****\n' + str(nodes[1]))
                 logging.info('After opt distance between previous and current reactant side nodes: {0:>8.4f} Angstrom'.
                              format(nodes[0].getDistance(FSMpath[innernode_r_idx])))
-                logging.info('After opt distance between previous and current product side nodes: {0:>8.4f} Angstrom'.
+                logging.info('After opt distance between previous and current product side nodes:  {0:>8.4f} Angstrom'.
                              format(nodes[1].getDistance(FSMpath[innernode_p_idx])))
                 logging.info('')
 
@@ -377,6 +395,14 @@ class FSM(object):
         if not isinstance(nsteps, int):
             raise TypeError('nsteps has to be an integer value')
 
+        # Gaussian settings
+        g_settings = {
+            'ver': gaussian_ver,
+            'level_of_theory': level_of_theory,
+            'nproc': nproc,
+            'mem': mem
+        }
+
         # Compute maximum allowed distance between nodes based on initial distance
         if other_node is not None:
             max_distance = node.getDistance(other_node) + 0.5 * self.node_spacing
@@ -392,7 +418,7 @@ class FSM(object):
 
         # Calculate gradient and energy
         start_time = time.time()
-        logfile = gaussian.executeGaussianJob(node, 'step_1', 'force', gaussian_ver, level_of_theory, nproc, mem)
+        logfile = gaussian.executeGaussianJob(node, name='step_1', jobtype='force', **g_settings)
         logging.info('Gradient calculation (step_1) completed in {0:.3f} s'.format(time.time() - start_time))
         grad = gaussian.getGradient(logfile).flatten()
         energy = gaussian.getEnergy(logfile)
@@ -460,8 +486,7 @@ class FSM(object):
             # Terminate after maximum number of gradient calls or if maximum distance between nodes is exceeded
             if k == nsteps or node.getDistance(other_node) > max_distance:
                 start_time = time.time()
-                logfile = gaussian.executeGaussianJob(node, 'final_energy', 'sp',
-                                                      gaussian_ver, level_of_theory, nproc, mem)
+                logfile = gaussian.executeGaussianJob(node, name='final_energy', jobtype='sp', **g_settings)
                 logging.info('Final energy calculation completed in {0:.3f} s'.format(time.time() - start_time))
                 logging.info('Energy = {0:.9f}'.format(energy))
                 energy = gaussian.getEnergy(logfile)
@@ -471,7 +496,7 @@ class FSM(object):
             # Calculate new gradient and energy
             name = 'step_' + str(k + 1)
             start_time = time.time()
-            logfile = gaussian.executeGaussianJob(node, name, 'force', gaussian_ver, level_of_theory, nproc, mem)
+            logfile = gaussian.executeGaussianJob(node, name=name, jobtype='force', **g_settings)
             logging.info('Gradient calculation ({0}) completed in {1:.3f} s'.format(name, time.time() - start_time))
             grad = gaussian.getGradient(logfile).flatten()
             energy = gaussian.getEnergy(logfile)

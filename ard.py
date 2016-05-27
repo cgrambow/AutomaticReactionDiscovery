@@ -92,8 +92,8 @@ if __name__ == '__main__':
     reactant_node = Node(reactant, atoms)
     product_node = Node(product, atoms)
 
-    fsm = FSM(reactant_node, product_node, nsteps=4, nnode=15, nLSTnodes=100, interpolation='LST',
-              gaussian_ver='g09', level_of_theory='hf/sto-3g', nproc=32)
+    fsm = FSM(reactant_node, product_node, nsteps=6, nnode=20, nLSTnodes=100, interpolation='LST',
+              gaussian_ver='g09', level_of_theory='m062x/6-311++g*', nproc=32)
 
     FSMpath, energies = fsm.execute()
 
