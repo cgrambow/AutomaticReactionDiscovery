@@ -4,6 +4,7 @@
     <list default="true" id="71a23b01-0fd4-46b9-8378-71c421b503d8" name="Default" comment="">
       <change type="NEW" beforePath="" afterPath="$PROJECT_DIR$/input.txt" />
       <change type="MODIFICATION" beforePath="$PROJECT_DIR$/.idea/workspace.xml" afterPath="$PROJECT_DIR$/.idea/workspace.xml" />
+      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/README.md" afterPath="$PROJECT_DIR$/README.md" />
       <change type="MODIFICATION" beforePath="$PROJECT_DIR$/ard.py" afterPath="$PROJECT_DIR$/ard.py" />
       <change type="MODIFICATION" beforePath="$PROJECT_DIR$/fsm.py" afterPath="$PROJECT_DIR$/fsm.py" />
       <change type="MODIFICATION" beforePath="$PROJECT_DIR$/node.py" afterPath="$PROJECT_DIR$/node.py" />
