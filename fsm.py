@@ -76,29 +76,32 @@ class FSM(object):
     `level_of_theory` ``str``                The level of theory (method/basis) for the quantum calculations
     `nproc`           ``int``                The number of processors available for the FSM calculation
     `mem`             ``str``                The memory requirements
+    `output_file`     ``str``                The path to the output file for FSM path nodes and energies
     `node_spacing`    ``float``              The interpolation distance between nodes
     ================= ====================== ==================================
 
     """
 
-    def __init__(self, reactant, product, nsteps=4, nnode=15, nLSTnodes=100, interpolation='LST',
-                 gaussian_ver='g09', level_of_theory='um062x/cc-pvtz', nproc=32, mem='2000mb'):
+    def __init__(self, reactant, product, nsteps=4, nnode=15, nlstnodes=100, interpolation='LST',
+                 gaussian_ver='g09', level_of_theory='um062x/cc-pvtz', nproc=32, mem='2000mb',
+                 output_file='stringfile.txt'):
         if reactant.number != product.number:
             raise Exception('Atom labels of reactant and product do not match')
-        if nLSTnodes < 3 * nnode:
-            raise ValueError('Increase the number of LST nodes')
         self.reactant = reactant
         self.product = product
-        self.nsteps = nsteps
-        self.nnode = nnode
-        self.nLSTnodes = nLSTnodes
+        self.nsteps = int(nsteps)
+        self.nnode = int(nnode)
+        self.nLSTnodes = int(nlstnodes)
+        if self.nLSTnodes < 4 * self.nnode:
+            raise ValueError('Increase the number of LST nodes')
         self.interpolation = interpolation.lower()
         if (self.interpolation != 'cartesian') and (self.interpolation != 'lst'):
             raise Exception('Invalid interpolation method')
-        self.gaussian_ver = gaussian_ver
+        self.gaussian_ver = gaussian_ver.lower()
         self.level_of_theory = level_of_theory
-        self.nproc = nproc
+        self.nproc = int(nproc)
         self.mem = mem
+        self.output_file = output_file
 
         self.node_spacing = None  # Set in initialize method
 
@@ -242,11 +245,23 @@ class FSM(object):
             logging.info('Total reactant to product arc length:   {0:>8.4f} Angstrom'.format(distance))
             logging.info('Interpolation arc length for new nodes: {0:>8.4f} Angstrom'.format(self.node_spacing))
 
+    def writeStringfile(self, FSMpath, energies):
+        """
+        Writes the nodes along the FSM path and their corresponding energies to
+        the output file.
+        """
+        with open(self.output_file, 'w') as f:
+            for node_num, (node, energy) in enumerate(zip(FSMpath, energies)):
+                f.write('Node ' + str(node_num + 1) + ':\n')
+                f.write('Energy = ' + str(energy) + '\n')
+                f.write(str(node) + '\n')
+
     def execute(self):
         """
         Run the freezing string method and return a tuple containing all
         optimized nodes along the FSM path and a tuple containing the energies
-        of each node.
+        of each node. The output file is updated each time nodes have been
+        optimized.
         """
         start_time = time.time()
         self.initialize()
@@ -300,6 +315,7 @@ class FSM(object):
                 logging.info('No new nodes were generated')
                 logging.info('\nFSM job terminated successfully on ' + time.asctime())
                 logging.info('Total run time: {0:.1f} s\n'.format(time.time() - start_time))
+                self.writeStringfile(FSMpath, energies)
                 return tuple(FSMpath), tuple(energies)
 
             # Optimize halfway node if only one was generated and return
@@ -311,9 +327,6 @@ class FSM(object):
                              format(nodes.getDistance(FSMpath[innernode_r_idx])))
                 logging.info('Linear distance from innermost product side node:  {0:>8.4f} Angstrom'.
                              format(nodes.getDistance(FSMpath[innernode_p_idx])))
-
-                # Compute tangent based on previous two nodes
-                # tangent = FSMpath[innernode_r_idx].getTangent(FSMpath[innernode_p_idx])
 
                 # Perpendicular optimization
                 logging.info('Optimizing final node')
@@ -333,6 +346,7 @@ class FSM(object):
 
                 logging.info('\nFSM job terminated successfully on ' + time.asctime())
                 logging.info('Total run time: {0:.1f} s\n'.format(time.time() - start_time))
+                self.writeStringfile(FSMpath, energies)
                 return tuple(FSMpath), tuple(energies)
 
             # Optimize new nodes
@@ -344,9 +358,6 @@ class FSM(object):
                              format(nodes[0].getDistance(FSMpath[innernode_r_idx])))
                 logging.info('Linear distance between previous and current product side nodes:  {0:>8.4f} Angstrom'.
                              format(nodes[1].getDistance(FSMpath[innernode_p_idx])))
-
-                # Compute tangent based on new nodes
-                # tangent = nodes[0].getTangent(nodes[1])
 
                 # Perpendicular optimization
                 logging.info('Optimizing new reactant side node')
@@ -369,6 +380,7 @@ class FSM(object):
                 FSMpath.insert(innernode_p_idx, nodes[0])
                 energies.insert(innernode_p_idx, energy1)
                 energies.insert(innernode_p_idx, energy0)
+                self.writeStringfile(FSMpath, energies)
 
         logging.error('FSM job terminated abnormally on ' + time.asctime())
         logging.info('Total run time: {0:.1f} s\n'.format(time.time() - start_time))

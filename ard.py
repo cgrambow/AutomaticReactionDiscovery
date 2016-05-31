@@ -9,10 +9,12 @@
 
 """
 Discovers chemical reactions automatically.
-Currently, it just runs a freezing string method transition state search.
+Currently, it just runs a freezing string method transition state search. The
+input filename is specified as a command line argument.
 """
 
 import os
+import argparse
 import logging
 
 from node import Node
@@ -55,53 +57,112 @@ def initializeLog(level, logfile):
 
 ###############################################################################
 
+def readInput(input_file):
+    """
+    Read input parameters from a file. It is assumed that the input file
+    contains key-value pairs in the form "key = value" on separate lines. If a
+    keyword containing the strings 'reactant' or 'product' is encountered, the
+    corresponding geometries are read in the form (example for methane):
+        reactant = (
+            0 1
+            C                 -0.03144385    0.03144654    0.00041162
+            H                  0.32521058   -0.97736346    0.00041162
+            H                  0.32522899    0.53584473    0.87406313
+            H                  0.32522899    0.53584473   -0.87323988
+            H                 -1.10144385    0.03145972    0.00041162
+        )
+    If '#' is found in a line, the rest of the line will be ignored.
+
+    A dictionary containing all input parameters and their values is returned.
+    """
+    if not os.path.exists(input_file):
+        raise IOError('Input file "{0}" does not exist'.format(input_file))
+
+    # Read all data from file
+    with open(input_file, 'r') as f:
+        input_data = f.read().splitlines()
+
+    # Read geometries
+    read = False
+    first_line = False
+    geometry = -1  # 0 for reactant, 1 for product
+    reactant_geo = []
+    reactant_atoms = []
+    reactant_multiplicity = 1
+    product_geo = []
+    product_atoms = []
+    product_multiplicity = 1
+    lines = []
+    for line_num, line in enumerate(input_data):
+        if line != '':
+            if line.split()[0] != '#':  # Ignore comments
+                if ')' in line and read:
+                    read = False
+                    geometry = -1
+                    lines.append(line_num)
+                if read and geometry == 0 and not first_line:
+                    reactant_atoms.append(line.split()[0])
+                    reactant_geo.append([float(coord) for coord in line.split()[1:4]])
+                    lines.append(line_num)
+                elif read and geometry == 0 and first_line:
+                    reactant_multiplicity = line.split()[1]
+                    first_line = False
+                    lines.append(line_num)
+                if read and geometry == 1 and not first_line:
+                    product_atoms.append(line.split()[0])
+                    product_geo.append([float(coord) for coord in line.split()[1:4]])
+                    lines.append(line_num)
+                elif read and geometry == 1 and first_line:
+                    product_multiplicity = line.split()[1]
+                    first_line = False
+                    lines.append(line_num)
+
+                if 'reactant' in line.lower():
+                    read = True
+                    first_line = True
+                    geometry = 0
+                    lines.append(line_num)
+                if 'product' in line.lower():
+                    read = True
+                    first_line = True
+                    geometry = 1
+                    lines.append(line_num)
+
+    reactant_node = Node(reactant_geo, reactant_atoms, reactant_multiplicity)
+    product_node = Node(product_geo, product_atoms, product_multiplicity)
+
+    # Delete geometries from input data
+    for idx in sorted(lines, reverse=True):
+        del input_data[idx]
+
+    # Create and initialize dictionary
+    input_dict = {'reactant': reactant_node, 'product': product_node}
+
+    # Extract remaining keywords and values
+    for line in input_data:
+        # Ignore lines containing only whitespace or comments
+        if line != '':
+            if line.split()[0] != '#':
+                input_dict[line.lower().split()[0]] = line.split()[2]
+
+    return input_dict
+
+###############################################################################
+
 if __name__ == '__main__':
+
+    # Set up parser for reading the input filename from the command line
+    parser = argparse.ArgumentParser(description='A freezing string method transition state search')
+    parser.add_argument('file', type=str, metavar='FILE', help='An input file describing the FSM job to execute')
+    args = parser.parse_args()
 
     # Initialize the logging system
     log_level = logging.INFO
     initializeLog(log_level, 'FSM.log')
 
-    # Create FSM input nodes
-    # Korcek reaction
-    atoms = (6, 6, 6, 1, 1, 1, 1, 1, 8, 8, 1, 8)
-    reactant = [[4.43125529, 0.07919777, 0.23143382],
-                [2.89342009, 0.11975358, 0.16059524],
-                [2.30386003, -0.60715121, 1.38355409],
-                [4.96628850, -0.73161823, -0.21713823],
-                [2.56324649, 1.13753262, 0.15724650],
-                [2.56472719, -0.36478984, -0.73499320],
-                [2.63255292, -0.12260779, 2.27914253],
-                [2.63403363, -1.62493026, 1.38690283],
-                [0.87587019, -0.56949224, 1.31777541],
-                [0.37053300, -1.19255350, 2.36602586],
-                [-0.58811752, -1.16726934, 2.32186829],
-                [5.05864729, 0.99963811, 0.81687333]]
+    # Read input file
+    fsm_arguments = readInput(args.file)
 
-    product = [[1.67823370, -1.48014525, 1.42090357],
-               [1.50203321, -0.95735353, 0.01705726],
-               [1.30824135, -2.24160181, -0.68086569],
-               [2.68969585, -1.72829100, 1.66639900],
-               [0.58688205, -0.40902620, -0.06501275],
-               [2.29612445, -0.32545165, -0.32208744],
-               [2.19418642, -2.84159727, -0.67826161],
-               [0.99487246, -2.12525301, -1.69731190],
-               [0.28615035, -2.79519060, 0.19386353],
-               [0.91921584, -2.73204886, 1.39906438],
-               [0.29867020, -0.27448633, 2.14539727],
-               [1.21294235, -0.49081137, 2.34265323]]
-    reactant_node = Node(reactant, atoms)
-    product_node = Node(product, atoms)
+    fsm = FSM(**fsm_arguments)
 
-    fsm = FSM(reactant_node, product_node, nsteps=6, nnode=20, nLSTnodes=100, interpolation='LST',
-              gaussian_ver='g09', level_of_theory='m062x/6-311++g*', nproc=32)
-
-    FSMpath, energies = fsm.execute()
-
-    # Create file containing FSM path geometries and energies
-    node_num = 1
-    with open('my_stringfile.txt', 'w') as f:
-        for node, energy in zip(FSMpath, energies):
-            f.write('Node ' + str(node_num) + ':\n')
-            f.write('Energy = ' + str(energy) + '\n')
-            f.write(str(node) + '\n')
-            node_num += 1
+    fsm.execute()

@@ -34,6 +34,7 @@ class Node(object):
 
     # Dictionary of elements corresponding to atomic numbers
     elements = {1: 'H', 5: 'B', 6: 'C', 7: 'N', 8: 'O', 9: 'F', 15: 'P', 16: 'S', 17: 'Cl', 35: 'Br', 53: 'I'}
+    elements_inv = dict((v, k) for k, v in elements.iteritems())
 
     def __init__(self, coordinates, number, multiplicity=1):
         try:
@@ -41,10 +42,18 @@ class Node(object):
         except ValueError:
             print 'One or more atoms are missing a coordinate'
             raise
-        self.number = tuple([int(round(num, 0)) for num in number])
-        for num in self.number:
-            if num not in self.elements.keys():
-                raise ValueError('Invalid atomic number: {0}'.format(num))
+
+        # self.number can be generated from atomic numbers or from atom labels
+        number_list = []
+        for num in number:
+            if num in self.elements.values():
+                number_list.append(self.elements_inv[num])
+                continue
+            if int(num) not in self.elements.keys():
+                raise ValueError('Invalid atomic number or symbol: {0}'.format(num))
+            number_list.append(int(num))
+        self.number = tuple(number_list)
+
         self.multiplicity = multiplicity
 
     def __str__(self):
