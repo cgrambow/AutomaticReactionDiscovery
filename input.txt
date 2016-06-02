@@ -1,9 +1,9 @@
-nsteps            4
-nnode             15
+nsteps            6
+nnode             20
 nLSTnodes         100
 interpolation     LST
 gaussian_ver      g09
-level_of_theory   hf/sto-3g
+level_of_theory   m062x/6-311++g*
 nproc             32
 
 # Korcek reaction

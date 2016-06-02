@@ -170,12 +170,16 @@ if __name__ == '__main__':
     parser.add_argument('file', type=str, metavar='FILE', help='An input file describing the FSM job to execute')
     args = parser.parse_args()
 
+    # Set output directory
+    input_file = args.file
+    output_dir = os.path.abspath(os.path.dirname(input_file))
+
     # Initialize the logging system
     log_level = logging.INFO
-    initializeLog(log_level, 'FSM.log')
+    initializeLog(log_level, os.path.join(output_dir, 'FSM.log'))
 
     # Read input file
-    fsm_arguments = readInput(args.file)
+    fsm_arguments = readInput(input_file)
 
     fsm = FSM(**fsm_arguments)
 

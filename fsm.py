@@ -76,7 +76,8 @@ class FSM(object):
     `level_of_theory` ``str``                The level of theory (method/basis) for the quantum calculations
     `nproc`           ``int``                The number of processors available for the FSM calculation
     `mem`             ``str``                The memory requirements
-    `output_file`     ``str``                The path to the output file for FSM path nodes and energies
+    `output_file`     ``str``                The name of the output file for FSM path nodes and energies
+    `output_dir`      ``str``                The path to the output directory
     `node_spacing`    ``float``              The interpolation distance between nodes
     ================= ====================== ==================================
 
@@ -84,7 +85,7 @@ class FSM(object):
 
     def __init__(self, reactant, product, nsteps=4, nnode=15, nlstnodes=100, interpolation='LST',
                  gaussian_ver='g09', level_of_theory='um062x/cc-pvtz', nproc=32, mem='2000mb',
-                 output_file='stringfile.txt'):
+                 output_file='stringfile.txt', output_dir=''):
         if reactant.number != product.number:
             raise Exception('Atom labels of reactant and product do not match')
         self.reactant = reactant
@@ -102,6 +103,7 @@ class FSM(object):
         self.nproc = int(nproc)
         self.mem = mem
         self.output_file = output_file
+        self.output_dir = output_dir
 
         self.node_spacing = None  # Set in initialize method
 
@@ -250,7 +252,7 @@ class FSM(object):
         Writes the nodes along the FSM path and their corresponding energies to
         the output file.
         """
-        with open(self.output_file, 'w') as f:
+        with open(os.path.join(self.output_dir, self.output_file), 'w') as f:
             for node_num, (node, energy) in enumerate(zip(FSMpath, energies)):
                 f.write('Node ' + str(node_num + 1) + ':\n')
                 f.write('Energy = ' + str(energy) + '\n')

@@ -102,7 +102,7 @@ def getGeometry(logfile='optJob.log'):
 ###############################################################################
 
 def executeGaussianJob(node, name='forceJob', jobtype='force', args=None, ver='g09', level_of_theory='um062x/cc-pvtz',
-                       nproc=32, mem='1500mb'):
+                       nproc=32, mem='1500mb', output_dir=''):
     """
     Execute quantum job type using the Gaussian software package. This method
     can only be run on a UNIX system where Gaussian is installed. Requires that
@@ -111,7 +111,7 @@ def executeGaussianJob(node, name='forceJob', jobtype='force', args=None, ver='g
     Return filename of Gaussian logfile.
     """
     # Create Gaussian input file
-    input_file = name + '.com'
+    input_file = os.path.join(output_dir, name + '.com')
     with open(input_file, 'w') as f:
         f.write('%chk=' + name + '.chk\n')
         f.write('%mem=' + mem + '\n')
@@ -130,7 +130,7 @@ def executeGaussianJob(node, name='forceJob', jobtype='force', args=None, ver='g
 
     # Run job and wait until termination
     if _platform == 'linux' or _platform == 'linux2':
-        output_file = name + '.log'
+        output_file = os.path.join(output_dir, name + '.log')
         subprocess.Popen([ver, input_file, output_file]).wait()
         os.remove(input_file)
         os.remove(name + '.chk')
