@@ -60,10 +60,10 @@ def initializeLog(level, logfile):
 def readInput(input_file):
     """
     Read input parameters from a file. It is assumed that the input file
-    contains key-value pairs in the form "key = value" on separate lines. If a
+    contains key-value pairs in the form "key value" on separate lines. If a
     keyword containing the strings 'reactant' or 'product' is encountered, the
     corresponding geometries are read in the form (example for methane):
-        reactant = (
+        reactant (
             0 1
             C                 -0.03144385    0.03144654    0.00041162
             H                  0.32521058   -0.97736346    0.00041162
@@ -77,6 +77,10 @@ def readInput(input_file):
     """
     if not os.path.exists(input_file):
         raise IOError('Input file "{0}" does not exist'.format(input_file))
+
+    # Allowed keywords
+    keys = ('reactant', 'product', 'nsteps', 'nnode', 'nlstnodes', 'interpolation', 'gaussian_ver', 'level_of_theory',
+            'nproc', 'mem', 'output_file')
 
     # Read all data from file
     with open(input_file, 'r') as f:
@@ -128,6 +132,13 @@ def readInput(input_file):
                     geometry = 1
                     lines.append(line_num)
 
+    # Check if reactant and product geometries were found
+    if not reactant_geo:
+        raise IOError('Missing reactant geometry')
+    if not product_geo:
+        raise IOError('Missing product geometry')
+
+    # Create nodes
     reactant_node = Node(reactant_geo, reactant_atoms, reactant_multiplicity)
     product_node = Node(product_geo, product_atoms, product_multiplicity)
 
@@ -143,7 +154,10 @@ def readInput(input_file):
         # Ignore lines containing only whitespace or comments
         if line != '':
             if line.split()[0] != '#':
-                input_dict[line.lower().split()[0]] = line.split()[2]
+                key = line.lower().split()[0]
+                if key not in keys:
+                    raise ValueError('Keyword {0} not receognized'.format(key))
+                input_dict[key] = line.split()[1]
 
     return input_dict
 

@@ -12,7 +12,7 @@ argument. The program can be run by executing
 from the command line, where input.txt can be replaced by any desired filename.
 
 Several arguments can be specified in the input file in the format
-"arg = value". The possible arguments are:
+"arg value". The possible arguments are:
 
 * `reactant`        - Reactant geometry (specified like in Gaussian)
 * `product`         - Product geometry
