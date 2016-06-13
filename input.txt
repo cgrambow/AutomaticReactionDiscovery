@@ -1,10 +1,12 @@
-nsteps            6
-nnode             20
-nLSTnodes         100
-interpolation     LST
-gaussian_ver      g09
-level_of_theory   m062x/6-311++g*
-nproc             32
+method            fsm               # Freezing string method
+nsteps            4                 # Number of gradient evaluations
+nnode             15                # Desired number of nodes
+lsf               0.7               # Line search factor
+tol               0.1               # Perpendicular gradient tolerance
+nLSTnodes         100               # Number of nodes for LST interpolation
+qprog             qchem             # Program for quantum calculations
+level_of_theory   hf/sto-3g         # Level of theory for quantum calculations
+nproc             8                 # Number of processors
 
 # Korcek reaction
 reactant (

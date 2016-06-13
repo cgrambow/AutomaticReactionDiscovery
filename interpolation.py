@@ -169,7 +169,7 @@ class LST(CartesianInterp):
         w_guess = self.node_start.coordinates.flatten() + f * (self.node_end.coordinates.flatten() -
                                                                self.node_start.coordinates.flatten())
         # Compute LST node by minimizing objective function
-        result = optimize.minimize(self.LSTobjective, w_guess, args=(f,), method='BFGS')
+        result = optimize.minimize(self.LSTobjective, w_guess, args=(f,), method='BFGS', options={'gtol': 1e-3})
         if not result.success:
             message = 'LST minimization terminated with status ' + str(result.status) + ':\n' + result.message + '\n'
             logging.warning(message)
@@ -205,7 +205,7 @@ class LST(CartesianInterp):
 
         return path, arclength
 
-    def getDistance(self, nnodes=100):
+    def getTotalArclength(self, nnodes=100):
         """
         Returns the total arc length between the two end nodes of the LST path.
         """

@@ -9,10 +9,6 @@ using quantum chemical calculations.
 
 import numpy as np
 
-import os
-
-import gaussian
-
 ###############################################################################
 
 class Node(object):
@@ -24,8 +20,9 @@ class Node(object):
     Attribute       Type                    Description
     =============== ======================= ===================================
     `coordinates`   :class:`numpy.ndarray`  A 3N x 3 array containing the 3D coordinates of each atom (in Angstrom)
-    `number`        :class:`tuple`          A tuple of length N containing the integer atomic number of each atom
+    `number`        :class:`list`           A list of length N containing the integer atomic number of each atom
     `multiplicity`  ``int``                 The multiplicity of this species, multiplicity = 2*total_spin+1
+    `mass`          :class:`list`           A list of length N containing the masses of each atom
     =============== ======================= ===================================
 
     N is the total number of atoms in the molecule. Each row in the coordinate
@@ -33,8 +30,12 @@ class Node(object):
     """
 
     # Dictionary of elements corresponding to atomic numbers
-    elements = {1: 'H', 5: 'B', 6: 'C', 7: 'N', 8: 'O', 9: 'F', 15: 'P', 16: 'S', 17: 'Cl', 35: 'Br', 53: 'I'}
+    elements = {1: 'H', 5: 'B', 6: 'C', 7: 'N', 8: 'O', 9: 'F', 15: 'P', 16: 'S', 17: 'Cl', 35: 'Br'}
     elements_inv = dict((v, k) for k, v in elements.iteritems())
+
+    # Dictionary of atomic weights in g/mol (from http://www.ciaaw.org/atomic-weights.htm#m)
+    weights = {1: 1.007975, 5: 10.8135, 6: 12.0106, 7: 14.006855, 8: 15.9994, 9: 18.9984031636, 15: 30.9737619985,
+               16: 32.0675, 17: 35.4515, 35: 79.904}
 
     def __init__(self, coordinates, number, multiplicity=1):
         try:
@@ -44,17 +45,18 @@ class Node(object):
             raise
 
         # self.number can be generated from atomic numbers or from atom labels
-        number_list = []
+        self.number = []
         for num in number:
             if num in self.elements.values():
-                number_list.append(self.elements_inv[num])
+                self.number.append(self.elements_inv[num])
                 continue
             if int(num) not in self.elements.keys():
                 raise ValueError('Invalid atomic number or symbol: {0}'.format(num))
-            number_list.append(int(num))
-        self.number = tuple(number_list)
+            self.number.append(int(num))
 
-        self.multiplicity = multiplicity
+        self.multiplicity = int(multiplicity)
+
+        self.mass = [self.weights[atom] for atom in self.number]
 
     def __str__(self):
         """
@@ -72,12 +74,34 @@ class Node(object):
         """
         return 'Node({coords}, {self.number}, {self.multiplicity})'.format(coords=self.coordinates.tolist(), self=self)
 
+    def getTotalMass(self, atoms=None):
+        """
+        Compute and return total mass in g/mol. If a list of atoms is specified
+        in `atoms`, only the corresponding atoms will be used to calculate the
+        total mass.
+        """
+        if atoms is None:
+            atoms = range(len(self.mass))
+        return sum([self.mass[atom] for atom in atoms])
+
     def getCentroid(self):
         """
         Compute and return non-mass weighted centroid of molecular
         configuration.
         """
         return self.coordinates.sum(axis=0) / float(len(self.number))
+
+    def getCenterOfMass(self, atoms=None):
+        """
+        Compute and return the position of the center of mass of the molecular
+        configuration. If a list of atoms is specified in `atoms`, only the
+        corresponding atoms will be used to calculate the center of mass.
+        """
+        if atoms is None:
+            atoms = range(len(self.mass))
+        mass = self.getTotalMass(atoms=atoms)
+        center = sum([self.mass[atom] * self.coordinates[atom] for atom in atoms])
+        return center / mass
 
     def translate(self, trans_vec):
         """
@@ -103,21 +127,17 @@ class Node(object):
         """
         self.coordinates = (rot_mat.dot(self.coordinates.T)).T
 
-    def getEnergy(self, gaussian_ver='g09', level_of_theory='um062x/cc-pvtz', nproc=32, mem='1500mb'):
+    def getEnergy(self, qclass, **kwargs):
         """
         Compute and return energy of node.
         """
-        logfile = gaussian.executeGaussianJob(
-            self,
-            name='energy',
-            jobtype='sp',
-            ver=gaussian_ver,
-            level_of_theory=level_of_theory,
-            nproc=nproc,
-            mem=mem
-        )
-        energy = gaussian.getEnergy(logfile)
-        os.remove(logfile)
+        # Create instance of quantum class
+        q = qclass()
+
+        # Execute job and retrieve energy
+        q.executeJob(self, jobtype='energy', **kwargs)
+        energy = q.getEnergy()
+        q.clear()
         return energy
 
     def getDistance(self, other=None):
