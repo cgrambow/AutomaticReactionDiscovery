@@ -9,8 +9,6 @@
 
 """
 Discovers chemical reactions automatically.
-Currently, it just runs a freezing string method transition state search. The
-input filename is specified as a command line argument.
 """
 
 import os
@@ -18,7 +16,7 @@ import argparse
 import logging
 
 from node import Node
-from fsm import FSM
+from sm import FSM, GSM
 
 ###############################################################################
 
@@ -79,8 +77,8 @@ def readInput(input_file):
         raise IOError('Input file "{0}" does not exist'.format(input_file))
 
     # Allowed keywords
-    keys = ('reactant', 'product', 'nsteps', 'nnode', 'nlstnodes', 'interpolation', 'gaussian_ver', 'level_of_theory',
-            'nproc', 'mem', 'output_file')
+    keys = ('method', 'reactant', 'product', 'nsteps', 'nnode', 'lsf', 'tol', 'gtol', 'nlstnodes',
+            'qprog', 'level_of_theory', 'nproc', 'mem', 'output_file')
 
     # Read all data from file
     with open(input_file, 'r') as f:
@@ -156,8 +154,21 @@ def readInput(input_file):
             if line.split()[0] != '#':
                 key = line.lower().split()[0]
                 if key not in keys:
-                    raise ValueError('Keyword {0} not receognized'.format(key))
-                input_dict[key] = line.split()[1]
+                    raise KeyError('Keyword {0} not recognized'.format(key))
+                if line.split()[1] == '=':
+                    input_dict[key] = line.split()[2]
+                else:
+                    input_dict[key] = line.split()[1]
+
+    # Check if valid method was specified and default to FSM
+    try:
+        method = input_dict['method'].lower()
+        if method != 'gsm' and method != 'fsm':
+            raise ValueError('Invalid method: {0}'.format(method))
+    except KeyError:
+        input_dict['method'] = 'fsm'
+    except AttributeError:
+        raise ValueError('Invalid method')
 
     return input_dict
 
@@ -166,21 +177,27 @@ def readInput(input_file):
 if __name__ == '__main__':
 
     # Set up parser for reading the input filename from the command line
-    parser = argparse.ArgumentParser(description='A freezing string method transition state search')
-    parser.add_argument('file', type=str, metavar='FILE', help='An input file describing the FSM job to execute')
+    parser = argparse.ArgumentParser(description='A freezing/growing string method transition state search')
+    parser.add_argument('file', type=str, metavar='FILE', help='An input file describing the FSM/GSM job to execute')
     args = parser.parse_args()
 
     # Set output directory
     input_file = args.file
     output_dir = os.path.abspath(os.path.dirname(input_file))
 
+    # Read input file
+    options = readInput(input_file)
+    jobtype = options['method'].upper()
+    del options['method']
+
     # Initialize the logging system
     log_level = logging.INFO
-    initializeLog(log_level, os.path.join(output_dir, 'FSM.log'))
+    initializeLog(log_level, os.path.join(output_dir, jobtype + '.log'))
 
-    # Read input file
-    fsm_arguments = readInput(input_file)
-
-    fsm = FSM(**fsm_arguments)
-
-    fsm.execute()
+    # Execute job
+    if jobtype == 'FSM':
+        fsm = FSM(**options)
+        fsm.execute()
+    else:
+        gsm = GSM(**options)
+        gsm.execute()
