@@ -463,12 +463,12 @@ class QChem(Quantum):
         xgrad = [row for (i, row) in enumerate(grad_mat_str) if not i % 3]
         ygrad = [row for (i, row) in enumerate(grad_mat_str[1:]) if not i % 3]
         zgrad = [row for (i, row) in enumerate(grad_mat_str[2:]) if not i % 3]
-        xgrad = [x for row in xgrad for x in row]
-        ygrad = [y for row in ygrad for y in row]
-        zgrad = [z for row in zgrad for z in row]
+        xgrad = np.array([x for row in xgrad for x in row]).astype(float)
+        ygrad = np.array([y for row in ygrad for y in row]).astype(float)
+        zgrad = np.array([z for row in zgrad for z in row]).astype(float)
 
         # Create gradient array and convert units
-        return 1.88972613 * np.array([xgrad, ygrad, zgrad]).astype(float).reshape(natoms, 3)
+        return 1.88972613 * np.column_stack((xgrad, ygrad, zgrad))
 
     def getGeometry(self):
         """

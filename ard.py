@@ -77,7 +77,7 @@ def readInput(input_file):
         raise IOError('Input file "{0}" does not exist'.format(input_file))
 
     # Allowed keywords
-    keys = ('method', 'reactant', 'product', 'nsteps', 'nnode', 'lsf', 'tol', 'gtol', 'nlstnodes', 'interpolation',
+    keys = ('method', 'reactant', 'product', 'nsteps', 'nnode', 'lsf', 'tol', 'gtol', 'nlstnodes',
             'qprog', 'level_of_theory', 'nproc', 'mem', 'output_file')
 
     # Read all data from file
