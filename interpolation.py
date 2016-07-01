@@ -9,6 +9,8 @@ which enable pickling and unpickling of class methods so that these can be run
 in parallel with the multiprocessing module.
 """
 
+from __future__ import division
+
 import numpy as np
 from scipy import optimize
 
@@ -53,17 +55,17 @@ class CartesianInterp(object):
     Cartesian interpolation object.
     The attributes are:
 
-    =============== ======================== ===================================
+    =============== ======================== ==================================
     Attribute       Type                     Description
-    =============== ======================== ===================================
+    =============== ======================== ==================================
     `node_start`    :class:`node.Node`       A node object representing one end for the interpolation
     `node_end`      :class:`node.Node`       A node object representing the other end
-    =============== ======================== ===================================
+    =============== ======================== ==================================
 
     """
 
     def __init__(self, node_start, node_end):
-        if node_start.number != node_end.number:
+        if node_start.atoms != node_end.atoms:
             raise Exception('Atom labels at the start and end of LST path do not match')
         self.node_start = node_start
         self.node_end = node_end
@@ -80,7 +82,7 @@ class CartesianInterp(object):
         nodes computed using simple Cartesian interpolation.
         """
         return Node(self.node_start.coordinates + f * (self.node_end.coordinates - self.node_start.coordinates),
-                    self.node_start.number, self.node_start.multiplicity)
+                    self.node_start.atoms, self.node_start.multiplicity)
 
     def getCartNodeAtDistance(self, distance):
         """
@@ -89,7 +91,7 @@ class CartesianInterp(object):
         diff = self.node_end.coordinates.flatten() - self.node_start.coordinates.flatten()
         dist_factor = diff / (diff.dot(diff)) ** 0.5
         return Node(self.node_start.coordinates.flatten() + distance * dist_factor,
-                    self.node_start.number, self.node_start.multiplicity)
+                    self.node_start.atoms, self.node_start.multiplicity)
 
 ###############################################################################
 
@@ -128,7 +130,7 @@ class LST(CartesianInterp):
         Cartesian coordinates. The matrix is N x N. Only the upper diagonal
         elements contain the distances. All other elements are set to 0.
         """
-        coords = coords.reshape(np.size(coords) / 3, 3)
+        coords = coords.reshape(np.size(coords) // 3, 3)
         x = coords[:, 0]
         y = coords[:, 1]
         z = coords[:, 2]
@@ -153,7 +155,7 @@ class LST(CartesianInterp):
         r = self.getDistMat(w)
 
         distance_term = 0.0
-        for d in range(1, len(self.node_start.number)):
+        for d in range(1, len(self.node_start.atoms)):
             distance_term += np.array((r_interpolated.diagonal(d) - r.diagonal(d)) ** 2.0 /
                                       r_interpolated.diagonal(d) ** 4.0).sum()
         cartesian_term = 1e-6 * (w_interpolated - w).dot(w_interpolated - w)
@@ -173,7 +175,7 @@ class LST(CartesianInterp):
         if not result.success:
             message = 'LST minimization terminated with status ' + str(result.status) + ':\n' + result.message + '\n'
             logging.warning(message)
-        return Node(result.x, self.node_start.number, self.node_start.multiplicity)
+        return Node(result.x, self.node_start.atoms, self.node_start.multiplicity)
 
     def getLSTpath(self, nnodes=100):
         """
@@ -186,7 +188,7 @@ class LST(CartesianInterp):
         should be used so that the arc length can be computed to sufficient
         accuracy.
         """
-        inc = 1.0 / float(nnodes - 1)
+        inc = 1.0 / (nnodes - 1)
 
         # Compute LST path in parallel and add start and end node to path
         if self.nproc > 1:

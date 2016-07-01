@@ -8,6 +8,8 @@ should be further optimized using another method in order to find the true
 transition state.
 """
 
+from __future__ import division
+
 import numpy as np
 from scipy import optimize
 import bisect
@@ -91,7 +93,7 @@ class String(object):
     def __init__(self, reactant, product, nsteps=4, nnode=15, tol=0.1, nlstnodes=100,
                  qprog='g09', level_of_theory='m062x/cc-pvtz', nproc=32, mem='2000mb',
                  output_file='stringfile.txt', output_dir=''):
-        if reactant.number != product.number:
+        if reactant.atoms != product.atoms:
             raise Exception('Atom labels of reactant and product do not match')
         self.reactant = reactant
         self.product = product
@@ -196,7 +198,7 @@ class String(object):
         logging.info('Aligning product and reactant structure to maximum coincidence')
         self.align()
         arclength = LST(self.reactant, self.product, self.nproc).getTotalArclength(self.nLSTnodes)
-        self.node_spacing = arclength / float(self.nnode)
+        self.node_spacing = arclength / self.nnode
         logging.info('Aligned reactant structure:\n' + str(self.reactant))
         logging.info('Aligned product structure:\n' + str(self.product))
         logging.info('Total reactant to product arc length:   {0:>8.4f} Angstrom'.format(arclength))
@@ -249,14 +251,14 @@ class String(object):
         logging.info('Gradient calculation ({0}) completed in {1:.3f} s'.format(name, time.time() - start_time))
         grad = q.getGradient().flatten()
         energy = q.getEnergy()
-        logging.debug('Gradient:\n' + str(grad.reshape(len(node.number), 3)))
+        logging.debug('Gradient:\n' + str(grad.reshape(len(node.atoms), 3)))
         logging.debug('Energy: ' + str(energy))
         q.clear()
 
         # Calculate perpendicular gradient and its magnitude
-        perp_grad = (np.eye(3 * len(node.number)) - np.outer(tangent, tangent)).dot(grad)
+        perp_grad = (np.eye(3 * len(node.atoms)) - np.outer(tangent, tangent)).dot(grad)
         perp_grad_mag = np.linalg.norm(perp_grad)
-        logging.debug('Perpendicular gradient:\n' + str(perp_grad.reshape(len(node.number), 3)))
+        logging.debug('Perpendicular gradient:\n' + str(perp_grad.reshape(len(node.atoms), 3)))
         logging.debug('Magnitude: ' + str(perp_grad_mag))
 
         return energy, perp_grad, perp_grad_mag
@@ -423,7 +425,7 @@ class FSM(String):
             logging.info('\nStarting iteration {0}\n'.format(i + 1))
 
             # Compute indices for inserting new nodes into FSM path
-            innernode_p_idx = len(FSMpath) / 2
+            innernode_p_idx = len(FSMpath) // 2
             innernode_r_idx = innernode_p_idx - 1
 
             # Compute distance between innermost nodes
@@ -455,7 +457,7 @@ class FSM(String):
                 # Perpendicular optimization
                 logging.info('Optimizing final node')
                 start_time_opt = time.time()
-                logging.debug('Tangent:\n' + str(tangents.reshape(len(nodes.number), 3)))
+                logging.debug('Tangent:\n' + str(tangents.reshape(len(nodes.atoms), 3)))
                 energy = self.perpOpt(nodes, tangents, **settings)
                 logging.info('Optimization completed in {0:.1f} s'.format(time.time() - start_time_opt))
                 logging.info('Optimized node:\n' + str(nodes))
@@ -486,12 +488,12 @@ class FSM(String):
                 # Perpendicular optimization
                 logging.info('Optimizing new reactant side node')
                 start_time_opt = time.time()
-                logging.debug('Tangent:\n' + str(tangents[0].reshape(len(nodes[0].number), 3)))
+                logging.debug('Tangent:\n' + str(tangents[0].reshape(len(nodes[0].atoms), 3)))
                 energy0 = self.perpOpt(nodes[0], tangents[0], nodes[1], **settings)
                 logging.info('Optimization completed in {0:.1f} s'.format(time.time() - start_time_opt))
                 logging.info('Optimizing new product side node')
                 start_time_opt = time.time()
-                logging.debug('Tangent:\n' + str(tangents[1].reshape(len(nodes[1].number), 3)))
+                logging.debug('Tangent:\n' + str(tangents[1].reshape(len(nodes[1].atoms), 3)))
                 energy1 = self.perpOpt(nodes[1], tangents[1], nodes[0], **settings)
                 logging.info('Optimization completed in {0:.1f} s'.format(time.time() - start_time_opt))
                 logging.info('Optimized nodes:\n' + str(nodes[0]) + '\n****\n' + str(nodes[1]))
@@ -535,7 +537,7 @@ class FSM(String):
             max_distance = 0
 
         # Initialize Hessian inverse to identity matrix
-        identity_mat = np.eye(3 * len(node.number))
+        identity_mat = np.eye(3 * len(node.atoms))
         hess_inv = np.copy(identity_mat)
 
         # Convert units to Hartree
@@ -571,7 +573,7 @@ class FSM(String):
 
             # Take minimization step
             step = scale_factor * search_dir
-            node.displaceCoordinates(step.reshape(len(node.number), 3))
+            node.displaceCoordinates(step.reshape(len(node.atoms), 3))
             logging.debug('Updated coordinates:\n' + str(node))
 
             # Save old values
@@ -776,7 +778,7 @@ class GSM(String):
             max_distance = 0
 
         # Initialize Hessian inverse to identity matrix
-        identity_mat = np.eye(3 * len(node.number))
+        identity_mat = np.eye(3 * len(node.atoms))
         hess_inv = np.copy(identity_mat)
 
         # Convert units to Hartree
@@ -812,7 +814,7 @@ class GSM(String):
 
             # Take minimization step
             step = scale_factor * search_dir
-            node.displaceCoordinates(step.reshape(len(node.number), 3))
+            node.displaceCoordinates(step.reshape(len(node.atoms), 3))
             logging.debug('Updated coordinates:\n' + str(node))
 
             # Save old values

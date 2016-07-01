@@ -6,12 +6,16 @@ Contains classes for reading data from quantum software log files and for
 executing quantum jobs.
 """
 
+from __future__ import print_function, division
+
 import numpy as np
 
-from sys import platform as _platform
+import sys
 import os
 import re
 import subprocess
+
+import props
 
 ###############################################################################
 
@@ -69,7 +73,7 @@ class Quantum(object):
             self.lf_contents = None
 
     @staticmethod
-    def formatArray(a):
+    def _formatArray(a):
         """
         Converts raw geometry or gradient array of strings, `a`, to a formatted
         :class:`numpy.ndarray` of size N x 3. Only the rightmost 3 values of
@@ -131,7 +135,7 @@ class Gaussian(Quantum):
             raise GaussianError('Forces could not be found in Gaussian log file')
 
         # Create force array and convert units
-        return - 1.88972613 * self.formatArray(force_mat_str)  # Return negative because gradient is desired
+        return - 1.88972613 * self._formatArray(force_mat_str)  # Return negative because gradient is desired
 
     def getGeometry(self):
         """
@@ -150,7 +154,7 @@ class Gaussian(Quantum):
             raise GaussianError('Geometry could not be found in Gaussian log file')
 
         # Create and return array containing geometry
-        return self.formatArray(coord_mat_str)
+        return self._formatArray(coord_mat_str)
 
     def executeJob(self, node, name='gau', jobtype='force', args=None, cmd='g09',
                    level_of_theory='m062x/cc-pvtz', nproc=32, mem='2000mb', output_dir=''):
@@ -191,14 +195,14 @@ class Gaussian(Quantum):
 
                 for atom_num, atom in enumerate(node.coordinates):
                     f.write(' {0}              {1[0]: 14.8f}{1[1]: 14.8f}{1[2]: 14.8f}\n'.format(
-                        node.elements[node.number[atom_num]], atom))
+                        props.atomnum[node.atoms[atom_num]], atom))
                 f.write('\n')
         except:
-            print 'An error occurred while creating the Gaussian input file'
+            print('An error occurred while creating the Gaussian input file', file=sys.stderr)
             raise
 
         # Run job and wait until termination
-        if _platform == 'linux' or _platform == 'linux2':
+        if sys.platform == 'linux' or sys.platform == 'linux2':
             output_file = os.path.join(output_dir, name + '.log')
             subprocess.Popen([cmd, input_file, output_file]).wait()
             os.remove(input_file)
@@ -277,7 +281,7 @@ class NWChem(Quantum):
             raise NWChemError('Gradient could not be found in NWChem log file')
 
         # Create gradient array and convert units
-        return 1.88972613 * self.formatArray(grad_mat_str)
+        return 1.88972613 * self._formatArray(grad_mat_str)
 
     def getGeometry(self):
         """
@@ -296,7 +300,7 @@ class NWChem(Quantum):
             raise NWChemError('Geometry could not be found in NWChem log file')
 
         # Create array containing geometry and convert units
-        return 0.529177211 * self.formatArray(coord_mat_str)
+        return 0.529177211 * self._formatArray(coord_mat_str)
 
     def executeJob(self, node, name='nwc', jobtype='gradient', cmd='nwchem',
                    level_of_theory='m062x/cc-pvtz', nproc=32, mem='2000mb', output_dir=''):
@@ -358,11 +362,11 @@ class NWChem(Quantum):
                     f.write('end\n')
                     f.write('task dft ' + jobtype + '\n')
         except:
-            print 'An error occurred while creating the NWChem input file'
+            print('An error occurred while creating the NWChem input file', file=sys.stderr)
             raise
 
         # Run job and wait until termination
-        if _platform == 'linux' or _platform == 'linux2':
+        if sys.platform == 'linux' or sys.platform == 'linux2':
             output_file = os.path.join(output_dir, name + '.log')
             subprocess.Popen(
                 'srun -n {0} {1} {2} >& {3}'.format(nproc, cmd, input_file, output_file), shell=True
@@ -452,7 +456,7 @@ class QChem(Quantum):
         # Read last occurrence of gradient
         for line_num, line in enumerate(reversed(self.lf_contents)):
             if 'Gradient of SCF Energy' in line:
-                num_lines = int(np.ceil(natoms / 6.0)) * 4
+                num_lines = int(np.ceil(natoms / 6)) * 4
                 grad_mat_str = self.lf_contents[-line_num:-(line_num - num_lines)]
                 break
         else:
@@ -489,7 +493,7 @@ class QChem(Quantum):
             raise QChemError('Geometry could not be found in Q-Chem log file')
 
         # Create and return array containing geometry
-        return self.formatArray(coord_mat_str)
+        return self._formatArray(coord_mat_str)
 
     def executeJob(self, node, name='qc', jobtype='force', cmd='qchem',
                    level_of_theory='m062x/cc-pvtz', nproc=32, mem='2000mb', output_dir=''):
@@ -531,11 +535,11 @@ class QChem(Quantum):
                 f.write('sym_ignore true\n')  # Have to disable symmetry to obtain input orientation
                 f.write('$end')
         except:
-            print 'An error occurred while creating the Q-Chem input file'
+            print('An error occurred while creating the Q-Chem input file', file=sys.stderr)
             raise
 
         # Run job and wait until termination
-        if _platform == 'linux' or _platform == 'linux2':
+        if sys.platform == 'linux' or sys.platform == 'linux2':
             output_file = os.path.join(output_dir, name + '.log')
             subprocess.Popen('{0} -np {1} {2} {3}'.format(cmd, nproc, input_file, output_file), shell=True).wait()
             os.remove(input_file)

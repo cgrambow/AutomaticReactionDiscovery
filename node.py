@@ -7,7 +7,12 @@ of molecules in Cartesian coordinates and evaluating energies and gradients
 using quantum chemical calculations.
 """
 
+from __future__ import print_function, division
+import sys
+
 import numpy as np
+
+import props
 
 ###############################################################################
 
@@ -20,7 +25,7 @@ class Node(object):
     Attribute       Type                    Description
     =============== ======================= ===================================
     `coordinates`   :class:`numpy.ndarray`  A 3N x 3 array containing the 3D coordinates of each atom (in Angstrom)
-    `number`        :class:`list`           A list of length N containing the integer atomic number of each atom
+    `atoms`         :class:`list`           A list of length N containing the integer atomic number of each atom
     `multiplicity`  ``int``                 The multiplicity of this species, multiplicity = 2*total_spin+1
     `mass`          :class:`list`           A list of length N containing the masses of each atom
     =============== ======================= ===================================
@@ -29,34 +34,26 @@ class Node(object):
     array represents one atom.
     """
 
-    # Dictionary of elements corresponding to atomic numbers
-    elements = {1: 'H', 5: 'B', 6: 'C', 7: 'N', 8: 'O', 9: 'F', 15: 'P', 16: 'S', 17: 'Cl', 35: 'Br'}
-    elements_inv = dict((v, k) for k, v in elements.iteritems())
-
-    # Dictionary of atomic weights in g/mol (from http://www.ciaaw.org/atomic-weights.htm#m)
-    weights = {1: 1.007975, 5: 10.8135, 6: 12.0106, 7: 14.006855, 8: 15.9994, 9: 18.9984031636, 15: 30.9737619985,
-               16: 32.0675, 17: 35.4515, 35: 79.904}
-
-    def __init__(self, coordinates, number, multiplicity=1):
+    def __init__(self, coordinates, atoms, multiplicity=1):
         try:
-            self.coordinates = np.array(coordinates).reshape(len(number), 3)
+            self.coordinates = np.array(coordinates).reshape(len(atoms), 3)
         except ValueError:
-            print 'One or more atoms are missing a coordinate'
+            print('One or more atoms are missing a coordinate', file=sys.stderr)
             raise
 
-        # self.number can be generated from atomic numbers or from atom labels
-        self.number = []
-        for num in number:
-            if num in self.elements.values():
-                self.number.append(self.elements_inv[num])
+        # self.atoms can be generated from atomic numbers or from atom labels
+        self.atoms = []
+        for num in atoms:
+            if num in props.atomnum.values():
+                self.atoms.append(props.atomnum_inv[num])
                 continue
-            if int(num) not in self.elements.keys():
+            if int(num) not in props.atomnum.keys():
                 raise ValueError('Invalid atomic number or symbol: {0}'.format(num))
-            self.number.append(int(num))
+            self.atoms.append(int(num))
 
         self.multiplicity = int(multiplicity)
 
-        self.mass = [self.weights[atom] for atom in self.number]
+        self.mass = [props.atomweights[atom] for atom in self.atoms]
 
     def __str__(self):
         """
@@ -65,14 +62,14 @@ class Node(object):
         return_string = ''
         for atom_num, atom in enumerate(self.coordinates):
             return_string += '{0}  {1[0]: 14.8f}{1[1]: 14.8f}{1[2]: 14.8f}\n'.format(
-                self.elements[self.number[atom_num]], atom)
+                props.atomnum[self.atoms[atom_num]], atom)
         return return_string[:-1]
 
     def __repr__(self):
         """
         Return a representation of the object.
         """
-        return 'Node({coords}, {self.number}, {self.multiplicity})'.format(coords=self.coordinates.tolist(), self=self)
+        return 'Node({coords}, {self.atoms}, {self.multiplicity})'.format(coords=self.coordinates.tolist(), self=self)
 
     def getTotalMass(self, atoms=None):
         """
@@ -89,7 +86,7 @@ class Node(object):
         Compute and return non-mass weighted centroid of molecular
         configuration.
         """
-        return self.coordinates.sum(axis=0) / float(len(self.number))
+        return self.coordinates.sum(axis=0) / len(self.atoms)
 
     def getCenterOfMass(self, atoms=None):
         """

@@ -88,12 +88,8 @@ def readInput(input_file):
     read = False
     first_line = False
     geometry = -1  # 0 for reactant, 1 for product
-    reactant_geo = []
-    reactant_atoms = []
-    reactant_multiplicity = 1
-    product_geo = []
-    product_atoms = []
-    product_multiplicity = 1
+    reactant_geo, reactant_atoms, product_geo, product_atoms = [], [], [], []
+    reactant_multiplicity, product_multiplicity = 1, 1
     lines = []
     for line_num, line in enumerate(input_data):
         if line != '':

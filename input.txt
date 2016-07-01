@@ -5,7 +5,7 @@ lsf               0.7               # Line search factor
 tol               0.1               # Perpendicular gradient tolerance
 nLSTnodes         100               # Number of nodes for LST interpolation
 qprog             qchem             # Program for quantum calculations
-level_of_theory   m062x/6-311++g**  # Level of theory for quantum calculations
+level_of_theory   m062x/6-311++g*   # Level of theory for quantum calculations
 nproc             8                 # Number of processors
 
 # Korcek reaction
