@@ -29,11 +29,11 @@ class Generate(object):
     Attribute       Type                     Description
     =============== ======================== ==================================
     `reac_smi`      ``string``               A valid SMILES string describing the reactant structure(s)
-    `atoms`         :class:`tuple`           A tuple containing the atomic numbers of reactant/product structures
+    `atoms`         ``tuple``                A tuple containing the atomic numbers of reactant/product structures
     `reac_mol`      :class:`gen3D.OBGen`     A molecule object for the reactant structure
     `reac_node`     :class:`node.Node`       A Node object for the reactant structure
-    `prod_mols`     :class:`list`            A list of :class:`gen3D.OBGen` product structures
-    `prod_nodes`    :class:`list`            A list of :class:`node.Node` product structures
+    `prod_mols`     ``list``                 A list of :class:`gen3D.OBGen` product structures
+    `prod_nodes`    ``list``                 A list of :class:`node.Node` product structures
     =============== ======================== ==================================
 
     """

@@ -25,9 +25,11 @@ class Node(object):
     Attribute       Type                    Description
     =============== ======================= ===================================
     `coordinates`   :class:`numpy.ndarray`  A 3N x 3 array containing the 3D coordinates of each atom (in Angstrom)
-    `atoms`         :class:`list`           A list of length N containing the integer atomic number of each atom
+    `atoms`         ``list``                A list of length N containing the integer atomic number of each atom
     `multiplicity`  ``int``                 The multiplicity of this species, multiplicity = 2*total_spin+1
-    `mass`          :class:`list`           A list of length N containing the masses of each atom
+    `masses`        ``list``                A list of length N containing the masses of each atom
+    `energy`        ``float``               The energy of the node (in Hartree)
+    `gradient`      :class:`numpy.ndarray`  The gradient for the current node geometry (in Hartree/Angstrom)
     =============== ======================= ===================================
 
     N is the total number of atoms in the molecule. Each row in the coordinate
@@ -53,7 +55,9 @@ class Node(object):
 
         self.multiplicity = int(multiplicity)
 
-        self.mass = [props.atomweights[atom] for atom in self.atoms]
+        self.masses = [props.atomweights[atom] for atom in self.atoms]
+        self.energy = None
+        self.gradient = None
 
     def __str__(self):
         """
@@ -71,6 +75,12 @@ class Node(object):
         """
         return 'Node({coords}, {self.atoms}, {self.multiplicity})'.format(coords=self.coordinates.tolist(), self=self)
 
+    def getXYZ(self):
+        """
+        Return a string of the node in the XYZ file format.
+        """
+        return str(len(self.atoms)) + '\n\n' + str(self)
+
     def getTotalMass(self, atoms=None):
         """
         Compute and return total mass in g/mol. If a list of atoms is specified
@@ -78,8 +88,8 @@ class Node(object):
         total mass.
         """
         if atoms is None:
-            atoms = range(len(self.mass))
-        return sum([self.mass[atom] for atom in atoms])
+            atoms = range(len(self.masses))
+        return sum([self.masses[atom] for atom in atoms])
 
     def getCentroid(self):
         """
@@ -95,9 +105,9 @@ class Node(object):
         corresponding atoms will be used to calculate the center of mass.
         """
         if atoms is None:
-            atoms = range(len(self.mass))
+            atoms = range(len(self.masses))
         mass = self.getTotalMass(atoms=atoms)
-        center = sum([self.mass[atom] * self.coordinates[atom] for atom in atoms])
+        center = sum([self.masses[atom] * self.coordinates[atom] for atom in atoms])
         return center / mass
 
     def translate(self, trans_vec):
@@ -124,18 +134,66 @@ class Node(object):
         """
         self.coordinates = (rot_mat.dot(self.coordinates.T)).T
 
-    def getEnergy(self, qclass, **kwargs):
+    def computeEnergy(self, Qclass, **kwargs):
         """
-        Compute and return energy of node.
+        Compute and set energy of the node using the quantum program specified
+        in `Qclass` with the options in `kwargs`.
         """
-        # Create instance of quantum class
-        q = qclass()
-
-        # Execute job and retrieve energy
+        q = Qclass()
         q.executeJob(self, jobtype='energy', **kwargs)
-        energy = q.getEnergy()
+        self.energy = q.getEnergy()
         q.clear()
-        return energy
+
+    def computeGradient(self, Qclass, **kwargs):
+        """
+        Compute and set gradient and energy of the node using the quantum
+        program specified in `Qclass` with the options in `kwargs`.
+        """
+        q = Qclass()
+        q.executeJob(self, jobtype='grad', **kwargs)
+        self.energy = q.getEnergy()
+        self.gradient = q.getGradient()
+        q.clear()
+
+    def optimizeGeometry(self, Qclass, ts=False, **kwargs):
+        """
+        Perform a geometry optimization of the node using the quantum program
+        specified in `Qclass` with the options in `kwargs`. If `ts` is True, a
+        transition state search will be run. The node coordinates, gradient,
+        and energy are updated. The number of gradient evaluations is returned.
+        """
+        q = Qclass()
+        if ts:
+            q.executeJob(self, jobtype='ts', **kwargs)
+        else:
+            q.executeJob(self, jobtype='opt', **kwargs)
+        self.energy = q.getEnergy()
+        self.gradient = q.getGradient()
+        self.coordinates = q.getGeometry()
+        ngrad = q.getNumGrad()
+        q.clear()
+
+        return ngrad
+
+    def getIRCpath(self, Qclass, **kwargs):
+        """
+        Execute an IRC path calculation assuming that the current node geometry
+        corresponds to a transition state. A list of :class:`node.Node` objects
+        (with coordinates and energies) representing the nodes along the IRC
+        path are returned.
+        """
+        q = Qclass()
+        q.executeJob(self, jobtype='irc', **kwargs)
+        path = q.getIRCpath()
+        q.clear()
+
+        nodepath = []
+        for element in path:
+            node = Node(element[0], self.atoms, self.multiplicity)
+            node.energy = element[1]
+            nodepath.append(node)
+
+        return nodepath
 
     def getDistance(self, other=None):
         """

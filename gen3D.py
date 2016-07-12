@@ -39,15 +39,13 @@ class OBGen(pybel.Molecule):
     Attribute       Type                     Description
     =============== ======================== ==================================
     `OBMol`         :class:`pybel.ob.OBMol`  An Openbabel molecule object
-    `forcefield`    ``string``               Force field for coordinate generation
-    `mols_indices`  :class:`tuple`           Tuple of lists containing indices of atoms in the molecules
+    `mols_indices`  ``list``                 Tuple of lists containing indices of atoms in the molecules
     =============== ======================== ==================================
 
     """
 
-    def __init__(self, OBMol, forcefield='mmff94'):
+    def __init__(self, OBMol):
         super(OBGen, self).__init__(OBMol)
-        self.forcefield = forcefield
         self.mols_indices = None
 
         # Delete stereochemistry information to prevent segmentation faults
@@ -59,7 +57,7 @@ class OBGen(pybel.Molecule):
         contains atoms and bonds.
         """
         # Create new empty instance
-        m = OBGen(pybel.ob.OBMol(), self.forcefield)
+        m = OBGen(pybel.ob.OBMol())
 
         # Add atoms and bonds
         for atom in self:
@@ -81,7 +79,7 @@ class OBGen(pybel.Molecule):
             coords.append(atom.coords)
         return Node(coords, atoms, self.spin)
 
-    def gen3D(self):
+    def gen3D(self, forcefield='mmff94'):
         """
         Generate 3D coordinates. If more than one molecule is present `self`,
         as indicated by the atom indices in `mols_indices`, then the geometries
@@ -93,7 +91,7 @@ class OBGen(pybel.Molecule):
 
         # Generate 3D geometry directly if there is only one molecule
         if len(self.mols_indices) == 1:
-            make3DandOpt(self, forcefield=self.forcefield)
+            make3DandOpt(self, forcefield)
 
         # Generate 3D geometries separately for each molecule
         else:
@@ -101,8 +99,8 @@ class OBGen(pybel.Molecule):
             mols = self.separateMol()
 
             # Arrange molecules in space
-            arrange3D = Arrange3D(mols, forcefield=self.forcefield)
-            arrange3D.arrangeIn3D()
+            arrange3D = Arrange3D(mols)
+            arrange3D.arrangeIn3D(forcefield)
 
             # Merge molecules
             self.mergeMols(mols)
@@ -212,27 +210,24 @@ class OBGen(pybel.Molecule):
 
 class Arrange3D(object):
     """
-    Arranging of :class:`OBGen` molecules in 3D space.
+    Arranging of :class:`OBGen` or :class:`pybel.Molecule` molecule objects in
+    3D space.
     The attributes are:
 
-    =============== ===================== =====================================
-    Attribute       Type                  Description
-    =============== ===================== =====================================
-    `mols`          :class:`list`         A list of :class:`OBGen` objects
-    `forcefield`    ``string``            Force field for coordinate generation
-    `d`             ``float``             Separation distance between molecules in Angstrom (excluding molecular radii)
-    =============== ===================== =====================================
+    =============== ================ ==========================================
+    Attribute       Type             Description
+    =============== ================ ==========================================
+    `mols`          ``list``         A list of :class:`OBGen` objects
+    =============== ================ ==========================================
 
     """
 
-    def __init__(self, mols, forcefield='mmff94', d=10.0):
+    def __init__(self, mols):
         if not 1 < len(mols) <= 4:
             raise Exception('More than 4 molecules are not supported')
         self.mols = mols
-        self.forcefield = forcefield
-        self.d = d
 
-    def gen3D(self):
+    def gen3D(self, forcefield='mmff94'):
         """
         Generate 3D geometries for each molecule.
         """
@@ -240,16 +235,17 @@ class Arrange3D(object):
             if len(mol.atoms) == 1:
                 mol.atoms[0].OBAtom.SetVector(0.0, 0.0, 0.0)
             else:
-                make3DandOpt(mol, forcefield=self.forcefield)
+                make3DandOpt(mol, forcefield=forcefield)
 
-    def arrangeIn3D(self):
+    def arrangeIn3D(self, forcefield='mmff94', d=2.5):
         """
         Arrange the molecules in 3D-space by modifying their coordinates. Two
         molecules are arranged in a line, three molecules in a triangle, and
-        four molecules in a square.
+        four molecules in a square. The molecules are separated by a distance
+        `d` in Angstrom (excluding molecular radii).
         """
         # Generate geometries
-        self.gen3D()
+        self.gen3D(forcefield)
 
         # Center molecules and find their approximate radii
         sizes = self.centerAndFindDistances()
@@ -257,14 +253,14 @@ class Arrange3D(object):
         nmols = len(self.mols)
         # Separate molecules by `d` if there are two molecules
         if nmols == 2:
-            t = pybel.ob.vector3(self.d + sizes[0] + sizes[1], 0.0, 0.0)
+            t = pybel.ob.vector3(d + sizes[0] + sizes[1], 0.0, 0.0)
             self.mols[1].OBMol.Translate(t)
         # Arrange molecules in triangle if there are three molecules
         elif nmols == 3:
-            t1 = pybel.ob.vector3(self.d + sizes[0] + sizes[1], 0.0, 0.0)
-            d1 = self.d + sizes[0] + sizes[1]
-            d2 = self.d + sizes[0] + sizes[2]
-            d3 = self.d + sizes[1] + sizes[2]
+            t1 = pybel.ob.vector3(d + sizes[0] + sizes[1], 0.0, 0.0)
+            d1 = d + sizes[0] + sizes[1]
+            d2 = d + sizes[0] + sizes[2]
+            d3 = d + sizes[1] + sizes[2]
             y = (-d1 ** 4.0 + 2.0 * d1 ** 2.0 * d2 ** 2.0 + 2.0 * d1 ** 2.0 * d3 ** 2.0 -
                  d2 ** 4.0 + 2.0 * d2 ** 2.0 * d3 ** 2.0 - d3 ** 4.0) ** 0.5 / (2.0 * d1)
             x = (d2 ** 2.0 - y ** 2.0) ** 0.5
@@ -273,8 +269,8 @@ class Arrange3D(object):
             self.mols[2].OBMol.Translate(t2)
         # Arrange molecules in square if there are four molecules
         elif nmols == 4:
-            x = max(self.d + sizes[0] + sizes[1], self.d + sizes[2] + sizes[3])
-            y = max(self.d + sizes[0] + sizes[2], self.d + sizes[1] + sizes[3])
+            x = max(d + sizes[0] + sizes[1], d + sizes[2] + sizes[3])
+            y = max(d + sizes[0] + sizes[2], d + sizes[1] + sizes[3])
             t1 = pybel.ob.vector3(x, 0.0, 0.0)
             t2 = pybel.ob.vector3(0.0, -y, 0.0)
             t3 = pybel.ob.vector3(x, -y, 0.0)

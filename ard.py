@@ -12,11 +12,7 @@ Discovers chemical reactions automatically.
 """
 
 import os
-import argparse
 import logging
-
-from node import Node
-from sm import FSM, GSM
 
 ###############################################################################
 
@@ -30,9 +26,9 @@ def initializeLog(level, logfile):
     logger = logging.getLogger()
     logger.setLevel(level)
 
-    logging.addLevelName(logging.CRITICAL, 'Critical: ')
-    logging.addLevelName(logging.ERROR, 'Error: ')
-    logging.addLevelName(logging.WARNING, 'Warning: ')
+    logging.addLevelName(logging.CRITICAL, 'CRITICAL: ')
+    logging.addLevelName(logging.ERROR, 'ERROR: ')
+    logging.addLevelName(logging.WARNING, 'WARNING: ')
     logging.addLevelName(logging.INFO, '')
     logging.addLevelName(logging.DEBUG, '')
 
@@ -78,7 +74,7 @@ def readInput(input_file):
 
     # Allowed keywords
     keys = ('method', 'reactant', 'product', 'nsteps', 'nnode', 'lsf', 'tol', 'gtol', 'nlstnodes',
-            'qprog', 'level_of_theory', 'nproc', 'mem', 'output_file')
+            'qprog', 'theory', 'theory_preopt', 'nproc', 'mem')
 
     # Read all data from file
     with open(input_file, 'r') as f:
@@ -159,41 +155,41 @@ def readInput(input_file):
     # Check if valid method was specified and default to FSM
     try:
         method = input_dict['method'].lower()
-        if method != 'gsm' and method != 'fsm':
-            raise ValueError('Invalid method: {0}'.format(method))
     except KeyError:
         input_dict['method'] = 'fsm'
     except AttributeError:
         raise ValueError('Invalid method')
+    else:
+        if method != 'gsm' and method != 'fsm':
+            raise ValueError('Invalid method: {0}'.format(method))
 
     return input_dict
 
 ###############################################################################
 
 if __name__ == '__main__':
+    import argparse
+
+    from node import Node
+    from tssearch import TSSearch
 
     # Set up parser for reading the input filename from the command line
-    parser = argparse.ArgumentParser(description='A freezing/growing string method transition state search')
-    parser.add_argument('file', type=str, metavar='FILE', help='An input file describing the FSM/GSM job to execute')
+    parser = argparse.ArgumentParser(description='A transition state search')
+    parser.add_argument('file', type=str, metavar='FILE', help='An input file describing the job options')
     args = parser.parse_args()
 
-    # Set output directory
-    input_file = args.file
-    output_dir = os.path.abspath(os.path.dirname(input_file))
-
     # Read input file
+    input_file = args.file
     options = readInput(input_file)
-    jobtype = options['method'].upper()
-    del options['method']
+
+    # Set output directory
+    output_dir = os.path.abspath(os.path.dirname(input_file))
+    options['output_dir'] = output_dir
 
     # Initialize the logging system
     log_level = logging.INFO
-    initializeLog(log_level, os.path.join(output_dir, jobtype + '.log'))
+    initializeLog(log_level, os.path.join(output_dir, 'TSSearch.log'))
 
     # Execute job
-    if jobtype == 'FSM':
-        fsm = FSM(**options)
-        fsm.execute()
-    else:
-        gsm = GSM(**options)
-        gsm.execute()
+    tssearch = TSSearch(**options)
+    tssearch.execute()
