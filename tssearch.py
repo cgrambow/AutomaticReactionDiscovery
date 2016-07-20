@@ -14,7 +14,6 @@ import time
 
 from quantum import Gaussian, NWChem, QChem, QuantumError
 from sm import FSM
-import gen3D
 
 ###############################################################################
 
@@ -78,7 +77,7 @@ class TSSearch(object):
         self.logHeader()
         self.ngrad = 0
 
-    def execute(self):
+    def execute(self, reactant_preopt=False):
         """
         Run the string method, exact transition state search, IRC calculation,
         and check the results. The highest energy node is selected for the
@@ -86,9 +85,8 @@ class TSSearch(object):
         """
         start_time = time.time()
         self.initialize()
-        # self.genNew3D()  # temporary
         if 'theory_preopt' in self.kwargs:
-            self.preoptimize()
+            self.preoptimize(reactant=reactant_preopt)
         sm_path = self.executeStringMethod()
 
         energy_max = sm_path[0].energy
@@ -111,14 +109,6 @@ class TSSearch(object):
         logging.info(
             'Total number of gradient evaluations (excluding pre-optimization and IRC): {0}'.format(self.ngrad)
         )
-
-    # def genNew3D(self):
-    #     reactant = gen3D.readstring('xyz', self.reactant.getXYZ())
-    #     product = gen3D.readstring('xyz', self.product.getXYZ())
-    #     reactant.gen3D()
-    #     product.gen3D()
-    #     self.reactant = reactant.toNode()
-    #     self.product = product.toNode()
 
     def preoptimize(self, reactant=False):
         """
@@ -260,3 +250,40 @@ class TSSearch(object):
         logging.info('Reactant structure:\n' + str(self.reactant))
         logging.info('Product structure:\n' + str(self.product))
         logging.info('#######################################################################\n')
+
+###############################################################################
+
+if __name__ == '__main__':
+    import argparse
+
+    from ard import initializeLog, readInput
+
+    # Set up parser for reading the input filename from the command line
+    parser = argparse.ArgumentParser(description='A transition state search')
+    parser.add_argument('file', type=str, metavar='FILE', help='An input file describing the job options')
+    args = parser.parse_args()
+
+    # Read input file
+    input_file = os.path.abspath(args.file)
+    options = readInput(input_file)
+    try:
+        reac_preopt = options['reac_preopt']
+    except KeyError:
+        reac_preopt = False
+    else:
+        if reac_preopt.lower() in ('true', '1', 't', 'y', 'yes'):
+            reac_preopt = True
+        else:
+            reac_preopt = False
+
+    # Set output directory
+    output_dir = os.path.abspath(os.path.dirname(input_file))
+    options['output_dir'] = output_dir
+
+    # Initialize the logging system
+    log_level = logging.INFO
+    initializeLog(log_level, os.path.join(output_dir, 'TSSearch.log'))
+
+    # Execute job
+    tssearch = TSSearch(**options)
+    tssearch.execute(reactant_preopt=reac_preopt)

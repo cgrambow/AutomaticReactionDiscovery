@@ -22,51 +22,35 @@ class StructureError(Exception):
 
 class Generate(object):
     """
-    Generation of product structures and 3D geometries.
+    Generation of product structures.
     The attributes are:
 
-    =============== ======================== ==================================
-    Attribute       Type                     Description
-    =============== ======================== ==================================
-    `reac_smi`      ``string``               A valid SMILES string describing the reactant structure(s)
-    `atoms`         ``tuple``                A tuple containing the atomic numbers of reactant/product structures
-    `reac_mol`      :class:`gen3D.OBGen`     A molecule object for the reactant structure
-    `reac_node`     :class:`node.Node`       A Node object for the reactant structure
-    `prod_mols`     ``list``                 A list of :class:`gen3D.OBGen` product structures
-    `prod_nodes`    ``list``                 A list of :class:`node.Node` product structures
-    =============== ======================== ==================================
+    =============== ========================== ================================
+    Attribute       Type                       Description
+    =============== ========================== ================================
+    `reac_mol`      :class:`gen3D.Molecule`    A molecule object for the reactant structure
+    `reac_smi`      ``str``                    Canonical SMILES of the reactant structure
+    `atoms`         ``tuple``                  A tuple containing the atomic numbers of reactant/product structures
+    `prod_mols`     ``list``                   A list of :class:`gen3D.Molecule` product structures
+    =============== ========================== ================================
 
     """
 
-    def __init__(self, reac_smi):
-        self.reac_smi = reac_smi
-
+    def __init__(self, reac_mol):
+        self.reac_mol = reac_mol
+        self.reac_smi = None
         self.atoms = None
-        self.reac_mol = None
-        self.reac_node = None
         self.prod_mols = []
-        self.prod_nodes = []
 
-        self.generateReactant3D()
+        self.initialize()
 
-    def generateReactant3D(self):
+    def initialize(self):
         """
-        Convert the reactant SMILES to a 3D geometry and populate
-        `self.reac_mol`, `self.atoms`, and `self.reac_node`.
+        Set the canonical SMILES for the reactant and extract the atomic
+        numbers.
         """
-        # Convert SMILES to OBGen objects
-        self.reac_mol = gen3D.readstring('smi', self.reac_smi)
-
-        # Add hydrogens
-        self.reac_mol.addh()
-
-        # Generate 3D geometry
-        self.reac_mol.gen3D()
-        self.atoms = tuple(atom.atomicnum for atom in self.reac_mol)
-        self.reac_node = self.reac_mol.toNode()
-
-        # Update reactant SMILES to use canonical SMILES
         self.reac_smi = self.reac_mol.write('can').strip()
+        self.atoms = tuple(atom.atomicnum for atom in self.reac_mol)
 
     def generateProducts(self, nbreak=0, nform=0):
         """
@@ -112,17 +96,15 @@ class Generate(object):
                     bonds_form_all
                 )
 
-        # Generate 3D geometries of products and append to list of product nodes
+        # Convert to Molecule object and append to list of product molecules
         if products:
             for product in products:
                 molblock = self.writeMolblock(product[0], product[1])
                 mol = gen3D.readstring('mdl', molblock)
-                mol.gen3D()
 
                 # Only append if product molecule is not the same as reactant
                 if mol.write('can').strip() != self.reac_smi:
                     self.prod_mols.append(mol)
-                    self.prod_nodes.append(mol.toNode())
 
     def _generateProductsHelper(self, nbreak, nform, products, bonds, valences, bonds_form_all, bonds_broken=None):
         """
@@ -138,7 +120,7 @@ class Generate(object):
         if nbreak == 0 and nform == 0:
             # If no more bonds are to be changed, then add product (base case)
             products.add((tuple(sorted(bonds)), tuple(valences)))
-        elif nbreak > 0:
+        if nbreak > 0:
             # Break bond
             for bond_break_idx, bond_break in enumerate(bonds):
                 valences_break = self.changeValences(valences, bond_break, -1)
@@ -163,7 +145,7 @@ class Generate(object):
 
             # Remove last bond that has been broken after loop terminates
             del bonds_broken[-1]
-        else:
+        elif nform > 0:
             # Form bond
             for bond_form in bonds_form_all:
                 # Do not add bond if it has previously been broken

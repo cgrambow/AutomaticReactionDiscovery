@@ -14,6 +14,8 @@ Discovers chemical reactions automatically.
 import os
 import logging
 
+from node import Node
+
 ###############################################################################
 
 def initializeLog(level, logfile):
@@ -55,102 +57,82 @@ def readInput(input_file):
     """
     Read input parameters from a file. It is assumed that the input file
     contains key-value pairs in the form "key value" on separate lines. If a
-    keyword containing the strings 'reactant' or 'product' is encountered, the
-    corresponding geometries are read in the form (example for methane):
-        reactant (
-            0 1
-            C                 -0.03144385    0.03144654    0.00041162
-            H                  0.32521058   -0.97736346    0.00041162
-            H                  0.32522899    0.53584473    0.87406313
-            H                  0.32522899    0.53584473   -0.87323988
-            H                 -1.10144385    0.03145972    0.00041162
+    keyword containing the string 'geometry' is encountered, the corresponding
+    geometries are read in the form (example for methane dissociation):
+        geometry (
+        0 1
+        C                 -0.03144385    0.03144654    0.00041162
+        H                  0.32521058   -0.97736346    0.00041162
+        H                  0.32522899    0.53584473    0.87406313
+        H                  0.32522899    0.53584473   -0.87323988
+        H                 -1.10144385    0.03145972    0.00041162
+        ****
+        C                 -0.36061854   -0.43406458    0.80670792
+        H                  0.14377652   -1.32573293    0.49781771
+        H                  0.14379613    0.27926689    1.42446520
+        H                  0.56523315    0.87525286   -1.46111753
+        H                 -1.36941886   -0.25571437    0.49781777
         )
     If '#' is found in a line, the rest of the line will be ignored.
 
     A dictionary containing all input parameters and their values is returned.
     """
-    if not os.path.exists(input_file):
-        raise IOError('Input file "{0}" does not exist'.format(input_file))
-
     # Allowed keywords
-    keys = ('method', 'reactant', 'product', 'nsteps', 'nnode', 'lsf', 'tol', 'gtol', 'nlstnodes',
-            'qprog', 'theory', 'theory_preopt', 'nproc', 'mem')
+    keys = ('reac_smi', 'nbreak', 'nform', 'dH_cutoff', 'forcefield', 'method', 'nsteps', 'nnode', 'lsf',
+            'tol', 'gtol', 'nlstnodes', 'qprog', 'theory', 'theory_preopt', 'reac_preopt', 'nproc', 'mem')
 
     # Read all data from file
     with open(input_file, 'r') as f:
         input_data = f.read().splitlines()
 
-    # Read geometries
+    # Create dictionary
+    input_dict = {}
+
+    # Read geometry block
     read = False
-    first_line = False
-    geometry = -1  # 0 for reactant, 1 for product
-    reactant_geo, reactant_atoms, product_geo, product_atoms = [], [], [], []
-    reactant_multiplicity, product_multiplicity = 1, 1
-    lines = []
-    for line_num, line in enumerate(input_data):
-        if line != '':
-            if line.split()[0] != '#':  # Ignore comments
-                if ')' in line and read:
-                    read = False
-                    geometry = -1
-                    lines.append(line_num)
-                if read and geometry == 0 and not first_line:
-                    reactant_atoms.append(line.split()[0])
-                    reactant_geo.append([float(coord) for coord in line.split()[1:4]])
-                    lines.append(line_num)
-                elif read and geometry == 0 and first_line:
-                    reactant_multiplicity = line.split()[1]
-                    first_line = False
-                    lines.append(line_num)
-                if read and geometry == 1 and not first_line:
-                    product_atoms.append(line.split()[0])
-                    product_geo.append([float(coord) for coord in line.split()[1:4]])
-                    lines.append(line_num)
-                elif read and geometry == 1 and first_line:
-                    product_multiplicity = line.split()[1]
-                    first_line = False
-                    lines.append(line_num)
+    geometry = []
+    sep_loc = -1
+    for line in input_data:
+        if line.strip().startswith(')'):
+            break
+        if read and not line.strip().startswith('#') and line != '':
+            geometry.append(line)
+            if line.strip().startswith('*'):
+                sep_loc = len(geometry) - 1
+        elif 'geometry' in line:
+            read = True
 
-                if 'reactant' in line.lower():
-                    read = True
-                    first_line = True
-                    geometry = 0
-                    lines.append(line_num)
-                if 'product' in line.lower():
-                    read = True
-                    first_line = True
-                    geometry = 1
-                    lines.append(line_num)
+    if geometry:
+        if sep_loc == -1:
+            raise Exception('Incorrect geometry specification')
 
-    # Check if reactant and product geometries were found
-    if not reactant_geo:
-        raise IOError('Missing reactant geometry')
-    if not product_geo:
-        raise IOError('Missing product geometry')
+        # Extract multiplicity, atoms, and geometries
+        multiplicity = geometry[0].split()[1]
+        reactant = geometry[1:sep_loc]
+        reac_atoms = [line.split()[0] for line in reactant]
+        reac_geo = [[float(coord) for coord in line.split()[1:4]] for line in reactant]
+        product = geometry[sep_loc + 1:]
+        prod_atoms = [line.split()[0] for line in product]
+        prod_geo = [[float(coord) for coord in line.split()[1:4]] for line in product]
 
-    # Create nodes
-    reactant_node = Node(reactant_geo, reactant_atoms, reactant_multiplicity)
-    product_node = Node(product_geo, product_atoms, product_multiplicity)
+        # Create nodes
+        reac_node = Node(reac_geo, reac_atoms, multiplicity)
+        prod_node = Node(prod_geo, prod_atoms, multiplicity)
 
-    # Delete geometries from input data
-    for idx in sorted(lines, reverse=True):
-        del input_data[idx]
-
-    # Create and initialize dictionary
-    input_dict = {'reactant': reactant_node, 'product': product_node}
+        # Add to dictionary
+        input_dict['reactant'] = reac_node
+        input_dict['product'] = prod_node
 
     # Extract remaining keywords and values
     for line in input_data:
-        # Ignore lines containing only whitespace or comments
-        if line != '':
-            if line.split()[0] != '#':
-                key = line.lower().split()[0]
-                if key not in keys:
-                    raise KeyError('Keyword {0} not recognized'.format(key))
-                if line.split()[1] == '=':
-                    input_dict[key] = line.split()[2]
-                else:
-                    input_dict[key] = line.split()[1]
+        if line != '' and not line.strip().startswith('#'):
+            key = line.split()[0].lower()
+            if key not in keys:
+                continue
+            if line.split()[1] == '=':
+                input_dict[key] = line.split()[2]
+            else:
+                input_dict[key] = line.split()[1]
 
     # Check if valid method was specified and default to FSM
     try:
@@ -158,10 +140,10 @@ def readInput(input_file):
     except KeyError:
         input_dict['method'] = 'fsm'
     except AttributeError:
-        raise ValueError('Invalid method')
+        raise Exception('Invalid method')
     else:
         if method != 'gsm' and method != 'fsm':
-            raise ValueError('Invalid method: {0}'.format(method))
+            raise Exception('Invalid method: {0}'.format(method))
 
     return input_dict
 
@@ -170,26 +152,25 @@ def readInput(input_file):
 if __name__ == '__main__':
     import argparse
 
-    from node import Node
-    from tssearch import TSSearch
+    from main import ARD
 
     # Set up parser for reading the input filename from the command line
-    parser = argparse.ArgumentParser(description='A transition state search')
+    parser = argparse.ArgumentParser(description='Automatic Reaction Discovery')
     parser.add_argument('file', type=str, metavar='FILE', help='An input file describing the job options')
     args = parser.parse_args()
 
     # Read input file
-    input_file = args.file
-    options = readInput(input_file)
+    input_file = os.path.abspath(args.file)
+    kwargs = readInput(input_file)
 
     # Set output directory
     output_dir = os.path.abspath(os.path.dirname(input_file))
-    options['output_dir'] = output_dir
+    kwargs['output_dir'] = output_dir
 
     # Initialize the logging system
     log_level = logging.INFO
-    initializeLog(log_level, os.path.join(output_dir, 'TSSearch.log'))
+    initializeLog(log_level, os.path.join(output_dir, 'ARD.log'))
 
     # Execute job
-    tssearch = TSSearch(**options)
-    tssearch.execute()
+    ard = ARD(**kwargs)
+    ard.execute(**kwargs)

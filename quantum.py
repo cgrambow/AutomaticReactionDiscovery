@@ -86,15 +86,6 @@ class Gaussian(Quantum):
     def __init__(self, logfile=None):
         super(Gaussian, self).__init__(logfile)
 
-    # def getNumAtoms(self):
-    #     """
-    #     Extract and return number of atoms from Gaussian job.
-    #     """
-    #     for line in self.lf_contents:
-    #         if 'NAtoms' in line:
-    #             return int(line.split()[1])
-    #     raise QuantumError('Number of atoms could not be found in Gaussian log file')
-
     def getNumAtoms(self):
         """
         Extract and return number of atoms from Gaussian job.
@@ -260,7 +251,7 @@ class Gaussian(Quantum):
                 elif jobtype == 'ts':
                     f.write('# opt=(ts,noeigen,calcfc,maxcycles=100) ' + theory + '\n\n')
                 elif jobtype == 'irc':
-                    f.write('# irc=(calcfc,maxpoints=50,stepsize=5,maxcycle=50) ' + theory +
+                    f.write('# irc=(calcfc,maxpoints=50,stepsize=8) ' + theory +
                             ' iop(1/7=300) \n\n')
                 else:
                     f.write('# ' + jobtype + ' ' + theory + '\n\n')

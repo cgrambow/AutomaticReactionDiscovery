@@ -186,8 +186,8 @@ class String(object):
         # Initialize path by adding reactant and product structures and computing their energies
         logging.info('Calculating reactant and product energies')
         path = [self.reactant, self.product]
-        self.reactant.computeEnergy(self.Qclass, **self.kwargs)
-        self.product.computeEnergy(self.Qclass, **self.kwargs)
+        self.reactant.computeEnergy(self.Qclass, name='reac_energy', **self.kwargs)
+        self.product.computeEnergy(self.Qclass, name='prod_energy', **self.kwargs)
         logging.info(
             'Reactant: {0:.9f} Hartree; Product: {1:.9f} Hartree'.format(self.reactant.energy, self.product.energy)
         )
@@ -782,6 +782,8 @@ class GSM(String):
     #     logging.log(level, 'Product structure:\n' + str(self.product))
     #     logging.log(level, '###########################################################################\n')
 
+###############################################################################
+
 if __name__ == '__main__':
     import argparse
 
@@ -793,7 +795,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # Read input file
-    input_file = args.file
+    input_file = os.path.abspath(args.file)
     options = readInput(input_file)
     jobtype = options['method']
 

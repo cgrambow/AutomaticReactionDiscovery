@@ -2,23 +2,30 @@
 # -*- coding: utf-8 -*-
 
 """
-Contains functions and classes for generating 3D geometries using Openbabel.
+Contains functions and classes for generating 3D geometries using Open Babel.
+Also contains functionality for estimating thermo using group additivity and
+RMG database values.
 """
 
 from __future__ import division
 
 import pybel
 
+import os
+
 from node import Node
+from rmgpy import settings
+from rmgpy.species import Species
+from rmgpy.data.thermo import ThermoDatabase
 
 ###############################################################################
 
 def readstring(format, string):
     """
-    Read in a molecule from a string and convert to a :class:`OBGen` object.
+    Read in a molecule from a string and convert to a :class:`Molecule` object.
     """
     mol = pybel.readstring(format, string)
-    return OBGen(mol.OBMol)
+    return Molecule(mol.OBMol)
 
 def make3DandOpt(mol, forcefield='mmff94'):
     """
@@ -27,9 +34,26 @@ def make3DandOpt(mol, forcefield='mmff94'):
     mol.make3D(forcefield=forcefield)
     mol.localopt(forcefield=forcefield)
 
+def gen3D(mol, forcefield='mmff94'):
+    """
+    Generate 3D coordinates using the specified force field.
+    """
+    # Separate molecules
+    mol.separateMol()
+
+    # Arrange molecules in space and generate 3D geometries separately
+    if len(mol.mols) > 1:
+        arrange3D = Arrange3D(mol.mols)
+        arrange3D.arrangeIn3D(forcefield)
+
+        # Merge molecules
+        mol.mergeMols()
+    else:
+        make3DandOpt(mol, forcefield)
+
 ###############################################################################
 
-class OBGen(pybel.Molecule):
+class Molecule(pybel.Molecule):
     """
     Extension of :class:`pybel.Molecule` for the generation of 3D geometries
     for structures containing more than one molecule.
@@ -38,18 +62,17 @@ class OBGen(pybel.Molecule):
     =============== ======================== ==================================
     Attribute       Type                     Description
     =============== ======================== ==================================
-    `OBMol`         :class:`pybel.ob.OBMol`  An Openbabel molecule object
+    `OBMol`         :class:`pybel.ob.OBMol`  An Open Babel molecule object
+    `mols`          ``list``                 A list of :class:`Molecule` molecules contained in `self`
     `mols_indices`  ``list``                 Tuple of lists containing indices of atoms in the molecules
     =============== ======================== ==================================
 
     """
 
     def __init__(self, OBMol):
-        super(OBGen, self).__init__(OBMol)
+        super(Molecule, self).__init__(OBMol)
         self.mols_indices = None
-
-        # Delete stereochemistry information to prevent segmentation faults
-        self.OBMol.DeleteData('StereoData')
+        self.mols = None
 
     def copy(self):
         """
@@ -57,7 +80,7 @@ class OBGen(pybel.Molecule):
         contains atoms and bonds.
         """
         # Create new empty instance
-        m = OBGen(pybel.ob.OBMol())
+        m = Molecule(pybel.ob.OBMol())
 
         # Add atoms and bonds
         for atom in self:
@@ -79,83 +102,114 @@ class OBGen(pybel.Molecule):
             coords.append(atom.coords)
         return Node(coords, atoms, self.spin)
 
+    def toRMGSpecies(self):
+        """
+        Convert to :class:`rmgpy.species.Species` object and return the object.
+        """
+        smiles = self.write().strip()
+        spc = Species().fromSMILES(smiles)
+        spc.label = smiles
+        return spc
+
+    def getH298(self, thermo_db=None):
+        """
+        Compute and return the standard enthalpy of formation of the structure
+        in kcal/mol. A :class:`rmgpy.data.thermo.ThermoDatabase` instance can
+        be supplied, which is used to search databases and use group additivity
+        values.
+        """
+        # Load thermo database
+        if thermo_db is None:
+            thermo_db = ThermoDatabase()
+            thermo_db.load(os.path.join(settings['database.directory'], 'thermo'))
+
+        # Compute enthalpy for each molecule and add together
+        H298 = 0.0
+        self.separateMol()
+        for mol in self.mols:
+            spc = mol.toRMGSpecies()
+            spc.thermo = thermo_db.getThermoData(spc)
+            H298 += spc.thermo.H298.value_si / 4184
+
+        # Return enthalpy of all molecules
+        return H298
+
     def gen3D(self, forcefield='mmff94'):
         """
-        Generate 3D coordinates. If more than one molecule is present `self`,
-        as indicated by the atom indices in `mols_indices`, then the geometries
-        are generated separately for each molecule and are merged before being
-        returned.
+        Generate 3D coordinates using the specified force field.
         """
-        # Perform connectivity analysis to determine which molecules are present
-        self.connectivityAnalysis()
+        # Separate molecules
+        self.separateMol()
 
-        # Generate 3D geometry directly if there is only one molecule
-        if len(self.mols_indices) == 1:
-            make3DandOpt(self, forcefield)
-
-        # Generate 3D geometries separately for each molecule
-        else:
-            # Separate molecules
-            mols = self.separateMol()
-
-            # Arrange molecules in space
-            arrange3D = Arrange3D(mols)
+        # Arrange molecules in space and generate 3D geometries separately
+        if len(self.mols) > 1:
+            arrange3D = Arrange3D(self.mols)
             arrange3D.arrangeIn3D(forcefield)
 
             # Merge molecules
-            self.mergeMols(mols)
+            self.mergeMols()
+        else:
+            make3DandOpt(self, forcefield)
 
     def separateMol(self):
         """
-        Separate molecule and return a list of separated :class:`OBGen` objects
-        based on the indices in `self.mols_indices`.
+        Separate molecule based on the indices in `self.mols_indices`.
         """
-        mols = []
-        for mol_idx in range(len(self.mols_indices)):
-            # Create copy
-            mol = self.copy()
+        if self.mols is None:
+            # Perform connectivity analysis
+            if self.mols_indices is None:
+                self.connectivityAnalysis()
 
-            # Obtain indices of all atoms to be deleted for current molecule and obtain corresponding atoms
-            del_indices = [atom_idx for mol_idx_2, mol_indices in enumerate(self.mols_indices) if mol_idx_2 != mol_idx
-                           for atom_idx in mol_indices]
-            del_atoms = [mol.atoms[idx].OBAtom for idx in del_indices]
+            nmols = len(self.mols_indices)
+            if nmols > 1:
+                self.mols = []
+                for mol_idx in range(nmols):
+                    # Create copy
+                    mol = self.copy()
 
-            # Delete atoms not in current molecule
-            for atom in del_atoms:
-                mol.OBMol.DeleteAtom(atom)
+                    # Obtain indices of all atoms to be deleted for current molecule and obtain corresponding atoms
+                    del_indices = [atom_idx for mol_idx_2, mol_indices in enumerate(self.mols_indices)
+                                   if mol_idx_2 != mol_idx
+                                   for atom_idx in mol_indices]
+                    del_atoms = [mol.atoms[idx].OBAtom for idx in del_indices]
 
-            # Append to list of molecules
-            mols.append(mol)
+                    # Delete atoms not in current molecule
+                    for atom in del_atoms:
+                        mol.OBMol.DeleteAtom(atom)
 
-        return mols
+                    # Append to list of molecules
+                    self.mols.append(mol)
+            else:
+                self.mols = [self]
 
-    def mergeMols(self, mols):
+    def mergeMols(self):
         """
         Merge molecules by clearing the current molecule and rewriting all
         atoms and bonds. The atoms are reordered according to the indices in
         `self.mols_indices`.
         """
-        # Clear current molecule
-        self.OBMol.Clear()
+        if self.mols is not None:
+            # Clear current molecule
+            self.OBMol.Clear()
 
-        # Loop through molecules and append atoms and bonds in order
-        natoms = 0
-        for mol in mols:
-            for atom in mol:
-                self.OBMol.AddAtom(atom.OBAtom)
-            for bond in pybel.ob.OBMolBondIter(mol.OBMol):
-                self.OBMol.AddBond(
-                    bond.GetBeginAtomIdx() + natoms, bond.GetEndAtomIdx() + natoms, bond.GetBondOrder()
-                )
-            natoms += len(mol.atoms)
+            # Loop through molecules and append atoms and bonds in order
+            natoms = 0
+            for mol in self.mols:
+                for atom in mol:
+                    self.OBMol.AddAtom(atom.OBAtom)
+                for bond in pybel.ob.OBMolBondIter(mol.OBMol):
+                    self.OBMol.AddBond(
+                        bond.GetBeginAtomIdx() + natoms, bond.GetEndAtomIdx() + natoms, bond.GetBondOrder()
+                    )
+                natoms += len(mol.atoms)
 
-        # Reorder atoms
-        mols_indices_new = [atom_idx for mol_indices in self.mols_indices for atom_idx in mol_indices]
+            # Reorder atoms
+            mols_indices_new = [atom_idx for mol_indices in self.mols_indices for atom_idx in mol_indices]
 
-        neworder = natoms * [0]
-        for i, atom_idx in enumerate(mols_indices_new):
-            neworder[atom_idx] = i + 1
-        self.OBMol.RenumberAtoms(neworder)
+            neworder = natoms * [0]
+            for i, atom_idx in enumerate(mols_indices_new):
+                neworder[atom_idx] = i + 1
+            self.OBMol.RenumberAtoms(neworder)
 
     def connectivityAnalysis(self):
         """
@@ -203,21 +257,21 @@ class OBGen(pybel.Molecule):
             if atom not in atoms_used:
                 molecules.append([atom])
 
-        # Sort molecules before returning
+        # Sort molecules and store result
         self.mols_indices = tuple(sorted(molecule) for molecule in molecules)
 
 ###############################################################################
 
 class Arrange3D(object):
     """
-    Arranging of :class:`OBGen` or :class:`pybel.Molecule` molecule objects in
+    Arranging of :class:`Molecule` or :class:`pybel.Molecule` molecule objects in
     3D space.
     The attributes are:
 
     =============== ================ ==========================================
     Attribute       Type             Description
     =============== ================ ==========================================
-    `mols`          ``list``         A list of :class:`OBGen` objects
+    `mols`          ``list``         A list of :class:`Molecule` objects
     =============== ================ ==========================================
 
     """
