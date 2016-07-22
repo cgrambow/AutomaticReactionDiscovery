@@ -29,33 +29,6 @@
 ###############################################################################
 
 """
-Discovers chemical reactions automatically.
+This is the ard package.
 """
-
-if __name__ == '__main__':
-    import argparse
-    import logging
-    import os
-
-    from ard.main import ARD, initializeLog, readInput
-
-    # Set up parser for reading the input filename from the command line
-    parser = argparse.ArgumentParser(description='Automatic Reaction Discovery')
-    parser.add_argument('file', type=str, metavar='FILE', help='An input file describing the job options')
-    args = parser.parse_args()
-
-    # Read input file
-    input_file = os.path.abspath(args.file)
-    kwargs = readInput(input_file)
-
-    # Set output directory
-    output_dir = os.path.abspath(os.path.dirname(input_file))
-    kwargs['output_dir'] = output_dir
-
-    # Initialize the logging system
-    log_level = logging.INFO
-    initializeLog(log_level, os.path.join(output_dir, 'ARD.log'))
-
-    # Execute job
-    ard = ARD(**kwargs)
-    ard.execute(**kwargs)
+pass

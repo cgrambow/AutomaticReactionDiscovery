@@ -28,34 +28,35 @@
 #
 ###############################################################################
 
-"""
-Discovers chemical reactions automatically.
-"""
+import os
 
-if __name__ == '__main__':
-    import argparse
-    import logging
-    import os
+from distutils.core import setup
 
-    from ard.main import ARD, initializeLog, readInput
+###############################################################################
 
-    # Set up parser for reading the input filename from the command line
-    parser = argparse.ArgumentParser(description='Automatic Reaction Discovery')
-    parser.add_argument('file', type=str, metavar='FILE', help='An input file describing the job options')
-    args = parser.parse_args()
+with open('README.md') as f:
+    readme = f.read()
 
-    # Read input file
-    input_file = os.path.abspath(args.file)
-    kwargs = readInput(input_file)
+with open('LICENSE') as f:
+    license = f.read()
 
-    # Set output directory
-    output_dir = os.path.abspath(os.path.dirname(input_file))
-    kwargs['output_dir'] = output_dir
+modules = []
+for root, dirs, files in os.walk('ard'):
+    for f in files:
+        if f.endswith('.py') or f.endswith('.pyx'):
+            if 'Test' not in f and '__init__' not in f:
+                module = 'ard' + root.partition('ard')[-1].replace('/', '.') + '.' + f.partition('.py')[0]
+                modules.append(module)
 
-    # Initialize the logging system
-    log_level = logging.INFO
-    initializeLog(log_level, os.path.join(output_dir, 'ARD.log'))
-
-    # Execute job
-    ard = ARD(**kwargs)
-    ard.execute(**kwargs)
+setup(
+    name='ARD',
+    version=0.1,
+    description='Automatic Reaction Discovery',
+    long_description=readme,
+    author='William H. Green and Colin Grambow',
+    author_email='cgrambow@mit.edu',
+    url='https://github.com/cgrambow/AutomaticReactionDiscovery',
+    license=license,
+    packages=['ard'],
+    py_modules=modules
+)

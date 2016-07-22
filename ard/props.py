@@ -29,33 +29,21 @@
 ###############################################################################
 
 """
-Discovers chemical reactions automatically.
+Contains dictionaries of atomic properties, such as atomic numbers and masses.
 """
 
-if __name__ == '__main__':
-    import argparse
-    import logging
-    import os
+###############################################################################
 
-    from ard.main import ARD, initializeLog, readInput
+# Atomic numbers
+atomnum = {1: 'H', 6: 'C', 7: 'N', 8: 'O', 9: 'F', 14: 'Si', 15: 'P', 16: 'S', 17: 'Cl', 35: 'Br'}
+atomnum_inv = dict((v, k) for k, v in atomnum.iteritems())
 
-    # Set up parser for reading the input filename from the command line
-    parser = argparse.ArgumentParser(description='Automatic Reaction Discovery')
-    parser.add_argument('file', type=str, metavar='FILE', help='An input file describing the job options')
-    args = parser.parse_args()
+# Atomic weights in g/mol (from http://www.ciaaw.org/atomic-weights.htm#m)
+atomweights = {1: 1.007975, 6: 12.0106, 7: 14.006855, 8: 15.9994, 9: 18.9984031636, 14: 28.085, 15: 30.9737619985,
+               16: 32.0675, 17: 35.4515, 35: 79.904}
 
-    # Read input file
-    input_file = os.path.abspath(args.file)
-    kwargs = readInput(input_file)
+# Valence electrons of neutral species
+valenceelec = {1: 1, 6: 4, 7: 5, 8: 6, 9: 7, 14: 4, 15: 5, 16: 6, 17: 7, 35: 7}
 
-    # Set output directory
-    output_dir = os.path.abspath(os.path.dirname(input_file))
-    kwargs['output_dir'] = output_dir
-
-    # Initialize the logging system
-    log_level = logging.INFO
-    initializeLog(log_level, os.path.join(output_dir, 'ARD.log'))
-
-    # Execute job
-    ard = ARD(**kwargs)
-    ard.execute(**kwargs)
+# Maximum valences of atoms
+maxvalences = {1: 1, 6: 4, 7: 3, 8: 2, 9: 1, 14: 4, 15: 5, 16: 6, 17: 7, 35: 7}

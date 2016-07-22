@@ -1,21 +1,51 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+###############################################################################
+#
+#   ARD - Automatic Reaction Discovery
+#
+#   Copyright (c) 2016 Prof. William H. Green (whgreen@mit.edu) and Colin
+#   Grambow (cgrambow@mit.edu)
+#
+#   Permission is hereby granted, free of charge, to any person obtaining a
+#   copy of this software and associated documentation files (the "Software"),
+#   to deal in the Software without restriction, including without limitation
+#   the rights to use, copy, modify, merge, publish, distribute, sublicense,
+#   and/or sell copies of the Software, and to permit persons to whom the
+#   Software is furnished to do so, subject to the following conditions:
+#
+#   The above copyright notice and this permission notice shall be included in
+#   all copies or substantial portions of the Software.
+#
+#   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+#   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+#   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+#   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+#   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+#   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+#   DEALINGS IN THE SOFTWARE.
+#
+###############################################################################
+
 """
 Contains the :class:`CartesianInterp` for computing linearly interpolated
 Cartesian nodes and the :class:`LST` for generating linear synchronous transit
-interpolation paths. Additionally, two functions are defined at the beginning,
-which enable pickling and unpickling of class methods so that these can be run
-in parallel with the multiprocessing module.
+interpolation paths.
+
+Two functions are defined which enable pickling and unpickling of class methods
+so that these can be serialized for map functions of parallelization packages.
 """
+
+from __future__ import division
+
+import copy_reg
+import logging
+import multiprocessing
+import types
 
 import numpy as np
 from scipy import optimize
-
-import logging
-import multiprocessing
-import copy_reg
-import types
 
 from node import Node
 
@@ -53,17 +83,17 @@ class CartesianInterp(object):
     Cartesian interpolation object.
     The attributes are:
 
-    =============== ======================== ===================================
+    =============== ======================== ==================================
     Attribute       Type                     Description
-    =============== ======================== ===================================
+    =============== ======================== ==================================
     `node_start`    :class:`node.Node`       A node object representing one end for the interpolation
     `node_end`      :class:`node.Node`       A node object representing the other end
-    =============== ======================== ===================================
+    =============== ======================== ==================================
 
     """
 
     def __init__(self, node_start, node_end):
-        if node_start.number != node_end.number:
+        if node_start.atoms != node_end.atoms:
             raise Exception('Atom labels at the start and end of LST path do not match')
         self.node_start = node_start
         self.node_end = node_end
@@ -80,7 +110,7 @@ class CartesianInterp(object):
         nodes computed using simple Cartesian interpolation.
         """
         return Node(self.node_start.coordinates + f * (self.node_end.coordinates - self.node_start.coordinates),
-                    self.node_start.number, self.node_start.multiplicity)
+                    self.node_start.atoms, self.node_start.multiplicity)
 
     def getCartNodeAtDistance(self, distance):
         """
@@ -89,7 +119,7 @@ class CartesianInterp(object):
         diff = self.node_end.coordinates.flatten() - self.node_start.coordinates.flatten()
         dist_factor = diff / (diff.dot(diff)) ** 0.5
         return Node(self.node_start.coordinates.flatten() + distance * dist_factor,
-                    self.node_start.number, self.node_start.multiplicity)
+                    self.node_start.atoms, self.node_start.multiplicity)
 
 ###############################################################################
 
@@ -128,7 +158,7 @@ class LST(CartesianInterp):
         Cartesian coordinates. The matrix is N x N. Only the upper diagonal
         elements contain the distances. All other elements are set to 0.
         """
-        coords = coords.reshape(np.size(coords) / 3, 3)
+        coords = coords.reshape(np.size(coords) // 3, 3)
         x = coords[:, 0]
         y = coords[:, 1]
         z = coords[:, 2]
@@ -153,7 +183,7 @@ class LST(CartesianInterp):
         r = self.getDistMat(w)
 
         distance_term = 0.0
-        for d in range(1, len(self.node_start.number)):
+        for d in range(1, len(self.node_start.atoms)):
             distance_term += np.array((r_interpolated.diagonal(d) - r.diagonal(d)) ** 2.0 /
                                       r_interpolated.diagonal(d) ** 4.0).sum()
         cartesian_term = 1e-6 * (w_interpolated - w).dot(w_interpolated - w)
@@ -171,9 +201,9 @@ class LST(CartesianInterp):
         # Compute LST node by minimizing objective function
         result = optimize.minimize(self.LSTobjective, w_guess, args=(f,), method='BFGS', options={'gtol': 1e-3})
         if not result.success:
-            message = 'LST minimization terminated with status ' + str(result.status) + ':\n' + result.message + '\n'
-            logging.warning(message)
-        return Node(result.x, self.node_start.number, self.node_start.multiplicity)
+            msg = 'LST minimization terminated with status ' + str(result.status) + ':\n' + result.message + '\n'
+            logging.warning(msg)
+        return Node(result.x, self.node_start.atoms, self.node_start.multiplicity)
 
     def getLSTpath(self, nnodes=100):
         """
@@ -186,12 +216,12 @@ class LST(CartesianInterp):
         should be used so that the arc length can be computed to sufficient
         accuracy.
         """
-        inc = 1.0 / float(nnodes - 1)
+        inc = 1.0 / (nnodes - 1)
 
         # Compute LST path in parallel and add start and end node to path
         if self.nproc > 1:
             pool = multiprocessing.Pool(self.nproc)
-            path = pool.map(self.getLSTnode, np.linspace(inc, 1.0 - inc, nnodes - 2))
+            path = list(pool.map(self.getLSTnode, np.linspace(inc, 1.0 - inc, nnodes - 2)))
         else:
             path = [self.getLSTnode(f) for f in np.linspace(inc, 1.0 - inc, nnodes - 2)]
         path.insert(0, self.node_start)
