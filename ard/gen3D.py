@@ -1,6 +1,33 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+###############################################################################
+#
+#   ARD - Automatic Reaction Discovery
+#
+#   Copyright (c) 2016 Prof. William H. Green (whgreen@mit.edu) and Colin
+#   Grambow (cgrambow@mit.edu)
+#
+#   Permission is hereby granted, free of charge, to any person obtaining a
+#   copy of this software and associated documentation files (the "Software"),
+#   to deal in the Software without restriction, including without limitation
+#   the rights to use, copy, modify, merge, publish, distribute, sublicense,
+#   and/or sell copies of the Software, and to permit persons to whom the
+#   Software is furnished to do so, subject to the following conditions:
+#
+#   The above copyright notice and this permission notice shall be included in
+#   all copies or substantial portions of the Software.
+#
+#   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+#   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+#   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+#   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+#   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+#   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+#   DEALINGS IN THE SOFTWARE.
+#
+###############################################################################
+
 """
 Contains functions and classes for generating 3D geometries using Open Babel.
 Also contains functionality for estimating thermo using group additivity and
@@ -9,9 +36,9 @@ RMG database values.
 
 from __future__ import division
 
-import pybel
-
 import os
+
+import pybel
 
 from node import Node
 from rmgpy import settings
@@ -33,23 +60,6 @@ def make3DandOpt(mol, forcefield='mmff94'):
     """
     mol.make3D(forcefield=forcefield)
     mol.localopt(forcefield=forcefield)
-
-def gen3D(mol, forcefield='mmff94'):
-    """
-    Generate 3D coordinates using the specified force field.
-    """
-    # Separate molecules
-    mol.separateMol()
-
-    # Arrange molecules in space and generate 3D geometries separately
-    if len(mol.mols) > 1:
-        arrange3D = Arrange3D(mol.mols)
-        arrange3D.arrangeIn3D(forcefield)
-
-        # Merge molecules
-        mol.mergeMols()
-    else:
-        make3DandOpt(mol, forcefield)
 
 ###############################################################################
 
@@ -286,8 +296,15 @@ class Arrange3D(object):
         Generate 3D geometries for each molecule.
         """
         for mol in self.mols:
-            if len(mol.atoms) == 1:
+            smiles = mol.write().strip()
+            if len(mol.atoms) == 1:  # Atoms
                 mol.atoms[0].OBAtom.SetVector(0.0, 0.0, 0.0)
+            elif smiles == '[H][H]':  # Hydrogen molecule
+                mol.atoms[0].OBAtom.SetVector(0.0, 0.0, 0.0)
+                mol.atoms[1].OBAtom.SetVector(0.74, 0.0, 0.0)
+            elif smiles == 'O=O':  # Oxygen molecule
+                mol.atoms[0].OBAtom.SetVector(0.0, 0.0, 0.0)
+                mol.atoms[1].OBAtom.SetVector(1.21, 0.0, 0.0)
             else:
                 make3DandOpt(mol, forcefield=forcefield)
 

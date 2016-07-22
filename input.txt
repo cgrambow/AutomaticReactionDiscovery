@@ -10,4 +10,4 @@ nLSTnodes         100               # Number of nodes for LST interpolation
 qprog             gau               # Program for quantum calculations
 theory            hf/sto-3g         # Level of theory for quantum calculations
 # theory_preopt     pm6               # Level of theory for pre-optimization
-nproc             8                 # Number of processors
+nproc             4                 # Number of processors

@@ -1,6 +1,33 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+###############################################################################
+#
+#   ARD - Automatic Reaction Discovery
+#
+#   Copyright (c) 2016 Prof. William H. Green (whgreen@mit.edu) and Colin
+#   Grambow (cgrambow@mit.edu)
+#
+#   Permission is hereby granted, free of charge, to any person obtaining a
+#   copy of this software and associated documentation files (the "Software"),
+#   to deal in the Software without restriction, including without limitation
+#   the rights to use, copy, modify, merge, publish, distribute, sublicense,
+#   and/or sell copies of the Software, and to permit persons to whom the
+#   Software is furnished to do so, subject to the following conditions:
+#
+#   The above copyright notice and this permission notice shall be included in
+#   all copies or substantial portions of the Software.
+#
+#   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+#   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+#   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+#   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+#   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+#   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+#   DEALINGS IN THE SOFTWARE.
+#
+###############################################################################
+
 """
 Contains relevant classes for executing transition state searches using the
 freezing string or growing string methods. The resulting transition state
@@ -10,14 +37,14 @@ transition state.
 
 from __future__ import division
 
+import logging
+import os
+import time
+
 import numpy as np
 from scipy import optimize
 
-import os
-import logging
-import time
-import bisect
-
+import util
 from quantum import Gaussian, NWChem, QChem
 from node import Node
 from interpolation import LST
@@ -45,20 +72,6 @@ def rotationMatrix(angles):
          [0.0, 0.0, 1.0]]
     )
     return Rx.dot(Ry).dot(Rz)
-
-def findClosest(a, x):
-    """
-    Returns index of value closest to `x` in sorted sequence `a`.
-    """
-    idx = bisect.bisect_left(a, x)
-    if idx == 0:
-        return a[0]
-    if idx == len(a):
-        return a[-1]
-    if a[idx] - x < x - a[idx - 1]:
-        return idx
-    else:
-        return idx - 1
 
 ###############################################################################
 
@@ -229,7 +242,6 @@ class String(object):
         # Calculate gradient and energy
         start_time = time.time()
         node.computeGradient(self.Qclass, name=name, **self.kwargs)
-        logging.info('Gradient calculation ({0}) completed in {1:.3f} s'.format(name, time.time() - start_time))
         logging.debug('Gradient:\n' + str(node.gradient.reshape(len(node.atoms), 3)))
         logging.debug('Energy: ' + str(node.energy))
 
@@ -301,6 +313,7 @@ class FSM(String):
 
         super(FSM, self).__init__(*args, **kwargs)
 
+    @util.timeFn
     def getNodes(self, node1, node2):
         """
         Generates new FSM nodes based on an LST interpolation path between the
@@ -324,10 +337,10 @@ class FSM(String):
         if arclength[-1] < self.node_spacing:
             return None, None
         elif self.node_spacing <= arclength[-1] <= 2.0 * self.node_spacing:
-            new_node_idx = findClosest(arclength, arclength[-1] / 2.0)
+            new_node_idx = util.findClosest(arclength, arclength[-1] / 2.0)
             return path[new_node_idx], path[new_node_idx - 1].getTangent(path[new_node_idx + 1])
-        new_node1_idx = findClosest(arclength, self.node_spacing)
-        new_node2_idx = findClosest(arclength, arclength[-1] - self.node_spacing)
+        new_node1_idx = util.findClosest(arclength, self.node_spacing)
+        new_node2_idx = util.findClosest(arclength, arclength[-1] - self.node_spacing)
         tangent1 = path[new_node1_idx - 1].getTangent(path[new_node1_idx + 1])
         tangent2 = path[new_node2_idx + 1].getTangent(path[new_node2_idx - 1])
         return (path[new_node1_idx], path[new_node2_idx]), (tangent1, tangent2)
@@ -363,9 +376,7 @@ class FSM(String):
             logging.info('Linear distance between innermost nodes: {0:.4f} Angstrom'.format(distance))
 
             # Obtain interpolated nodes
-            start_time_interp = time.time()
             nodes, tangents = self.getNodes(FSMpath[innernode_r_idx], FSMpath[innernode_p_idx])
-            logging.info('New nodes generated in {0:.2f} s'.format(time.time() - start_time_interp))
 
             # Return if no new nodes were generated
             if nodes is None:
@@ -386,10 +397,8 @@ class FSM(String):
 
                 # Perpendicular optimization
                 logging.info('Optimizing final node')
-                start_time_opt = time.time()
                 logging.debug('Tangent:\n' + str(tangents.reshape(len(nodes.atoms), 3)))
                 self.perpOpt(nodes, tangents, min_desired_energy_change=min_en_change)
-                logging.info('Optimization completed in {0:.1f} s'.format(time.time() - start_time_opt))
                 logging.info('Optimized node:\n' + str(nodes))
                 logging.info('After opt distance from innermost reactant side node: {0:>8.4f} Angstrom'.
                              format(nodes.getDistance(FSMpath[innernode_r_idx])))
@@ -416,15 +425,11 @@ class FSM(String):
 
                 # Perpendicular optimization
                 logging.info('Optimizing new reactant side node')
-                start_time_opt = time.time()
                 logging.debug('Tangent:\n' + str(tangents[0].reshape(len(nodes[0].atoms), 3)))
                 self.perpOpt(nodes[0], tangents[0], nodes[1], min_en_change)
-                logging.info('Optimization completed in {0:.1f} s'.format(time.time() - start_time_opt))
                 logging.info('Optimizing new product side node')
-                start_time_opt = time.time()
                 logging.debug('Tangent:\n' + str(tangents[1].reshape(len(nodes[1].atoms), 3)))
                 self.perpOpt(nodes[1], tangents[1], nodes[0], min_en_change)
-                logging.info('Optimization completed in {0:.1f} s'.format(time.time() - start_time_opt))
                 logging.info('Optimized nodes:\n' + str(nodes[0]) + '\n****\n' + str(nodes[1]))
                 logging.info('After opt distance between previous and current reactant side nodes: {0:>8.4f} Angstrom'.
                              format(nodes[0].getDistance(FSMpath[innernode_r_idx])))
@@ -441,6 +446,7 @@ class FSM(String):
         self.writeStringfile(FSMpath)
         return FSMpath
 
+    @util.timeFn
     def perpOpt(self, node, tangent, other_node=None, min_desired_energy_change=2.5):
         """
         Optimize node in direction of negative perpendicular gradient using the
@@ -616,10 +622,10 @@ class GSM(String):
     #     if arclength[-1] < self.node_spacing:
     #         return None, None
     #     elif self.node_spacing <= arclength[-1] <= 2.0 * self.node_spacing:
-    #         new_node_idx = findClosest(arclength, arclength[-1] / 2.0)
+    #         new_node_idx = util.findClosest(arclength, arclength[-1] / 2.0)
     #         return path[new_node_idx], path[new_node_idx - 1].getTangent(path[new_node_idx + 1])
-    #     new_node1_idx = findClosest(arclength, self.node_spacing)
-    #     new_node2_idx = findClosest(arclength, arclength[-1] - self.node_spacing)
+    #     new_node1_idx = util.findClosest(arclength, self.node_spacing)
+    #     new_node2_idx = util.findClosest(arclength, arclength[-1] - self.node_spacing)
     #     tangent1 = path[new_node1_idx - 1].getTangent(path[new_node1_idx + 1])
     #     tangent2 = path[new_node2_idx + 1].getTangent(path[new_node2_idx - 1])
     #     return (path[new_node1_idx], path[new_node2_idx]), (tangent1, tangent2)
@@ -787,7 +793,7 @@ class GSM(String):
 if __name__ == '__main__':
     import argparse
 
-    from ard import initializeLog, readInput
+    from main import initializeLog, readInput
 
     # Set up parser for reading the input filename from the command line
     parser = argparse.ArgumentParser(description='A freezing/growing string method transition state search')

@@ -1,20 +1,38 @@
 <component name="ProjectDictionaryState">
   <dictionary name="User1">
     <words>
+      <w>additivity</w>
       <w>calcfc</w>
+      <w>cantherm</w>
       <w>ccsd</w>
+      <w>grambow</w>
       <w>hartree</w>
       <w>hartrees</w>
+      <w>inputfile</w>
       <w>maxcycles</w>
       <w>maxpoints</w>
       <w>mepgs</w>
       <w>ndarray</w>
+      <w>ngrad</w>
       <w>noeigen</w>
+      <w>noninfringement</w>
       <w>nprocshared</w>
+      <w>nwchem</w>
+      <w>parallelization</w>
+      <w>picklable</w>
+      <w>preopt</w>
       <w>pvtz</w>
+      <w>qchem</w>
+      <w>qclass</w>
+      <w>qprog</w>
+      <w>raphson</w>
+      <w>reac</w>
+      <w>rmgpy</w>
+      <w>sopt</w>
       <w>stepsize</w>
       <w>thermo</w>
       <w>tssearch</w>
+      <w>unpickles</w>
     </words>
   </dictionary>
 </component>

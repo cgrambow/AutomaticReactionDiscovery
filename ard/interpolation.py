@@ -1,23 +1,51 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+###############################################################################
+#
+#   ARD - Automatic Reaction Discovery
+#
+#   Copyright (c) 2016 Prof. William H. Green (whgreen@mit.edu) and Colin
+#   Grambow (cgrambow@mit.edu)
+#
+#   Permission is hereby granted, free of charge, to any person obtaining a
+#   copy of this software and associated documentation files (the "Software"),
+#   to deal in the Software without restriction, including without limitation
+#   the rights to use, copy, modify, merge, publish, distribute, sublicense,
+#   and/or sell copies of the Software, and to permit persons to whom the
+#   Software is furnished to do so, subject to the following conditions:
+#
+#   The above copyright notice and this permission notice shall be included in
+#   all copies or substantial portions of the Software.
+#
+#   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+#   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+#   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+#   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+#   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+#   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+#   DEALINGS IN THE SOFTWARE.
+#
+###############################################################################
+
 """
 Contains the :class:`CartesianInterp` for computing linearly interpolated
 Cartesian nodes and the :class:`LST` for generating linear synchronous transit
-interpolation paths. Additionally, two functions are defined at the beginning,
-which enable pickling and unpickling of class methods so that these can be run
-in parallel with the multiprocessing module.
+interpolation paths.
+
+Two functions are defined which enable pickling and unpickling of class methods
+so that these can be serialized for map functions of parallelization packages.
 """
 
 from __future__ import division
 
-import numpy as np
-from scipy import optimize
-
+import copy_reg
 import logging
 import multiprocessing
-import copy_reg
 import types
+
+import numpy as np
+from scipy import optimize
 
 from node import Node
 
@@ -173,8 +201,8 @@ class LST(CartesianInterp):
         # Compute LST node by minimizing objective function
         result = optimize.minimize(self.LSTobjective, w_guess, args=(f,), method='BFGS', options={'gtol': 1e-3})
         if not result.success:
-            message = 'LST minimization terminated with status ' + str(result.status) + ':\n' + result.message + '\n'
-            logging.warning(message)
+            msg = 'LST minimization terminated with status ' + str(result.status) + ':\n' + result.message + '\n'
+            logging.warning(msg)
         return Node(result.x, self.node_start.atoms, self.node_start.multiplicity)
 
     def getLSTpath(self, nnodes=100):
@@ -193,7 +221,7 @@ class LST(CartesianInterp):
         # Compute LST path in parallel and add start and end node to path
         if self.nproc > 1:
             pool = multiprocessing.Pool(self.nproc)
-            path = pool.map(self.getLSTnode, np.linspace(inc, 1.0 - inc, nnodes - 2))
+            path = list(pool.map(self.getLSTnode, np.linspace(inc, 1.0 - inc, nnodes - 2)))
         else:
             path = [self.getLSTnode(f) for f in np.linspace(inc, 1.0 - inc, nnodes - 2)]
         path.insert(0, self.node_start)

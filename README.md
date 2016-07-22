@@ -13,7 +13,8 @@ argument. The full program can be run by executing
 `python ard.py input.txt` or `python -m scoop ard.py input.txt`
 from the command line, where input.txt can be replaced by any desired filename.
 The latter option enables 3D product generation in parallel if SCOOP is
-installed.
+installed. (See the example SLURM script for extra arguments that may be
+required by SCOOP)
 A freezing string method (without exact TS search and IRC calculation) can be
 run by executing
 `python sm.py input.txt`
@@ -39,7 +40,7 @@ The possible arguments are:
 * `theory`         - Level of theory (e.g., m062x/cc-pvtz)
 * `theory_preopt`  - Level of theory for pre-optimization
 * `reac_preopt`    - Boolean determining if reactant is pre-optimized
-* `nproc`          - Number of available processors
+* `nproc`          - Number of processors per quantum calculation
 * `mem`            - Memory requirements for quantum software
 
 Only reactant and product have to be specified, all other arguments have
@@ -52,6 +53,5 @@ Required Python modules in addition to the standard library:
 * **Numpy**
 * **Scipy**
 * **Open Babel**
-* **SCOOP** (optional)
 * Some RMG functionality is also required
 

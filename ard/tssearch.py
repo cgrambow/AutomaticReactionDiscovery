@@ -1,17 +1,45 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+###############################################################################
+#
+#   ARD - Automatic Reaction Discovery
+#
+#   Copyright (c) 2016 Prof. William H. Green (whgreen@mit.edu) and Colin
+#   Grambow (cgrambow@mit.edu)
+#
+#   Permission is hereby granted, free of charge, to any person obtaining a
+#   copy of this software and associated documentation files (the "Software"),
+#   to deal in the Software without restriction, including without limitation
+#   the rights to use, copy, modify, merge, publish, distribute, sublicense,
+#   and/or sell copies of the Software, and to permit persons to whom the
+#   Software is furnished to do so, subject to the following conditions:
+#
+#   The above copyright notice and this permission notice shall be included in
+#   all copies or substantial portions of the Software.
+#
+#   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+#   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+#   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+#   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+#   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+#   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+#   DEALINGS IN THE SOFTWARE.
+#
+###############################################################################
+
 """
 Contains the :class:`TSSearch` for finding transition states and reaction paths
 using FSM/GSM.
 """
 
-import pybel
-
-import os
 import logging
+import os
 import time
 
+import pybel
+
+import util
 from quantum import Gaussian, NWChem, QChem, QuantumError
 from sm import FSM
 
@@ -110,15 +138,12 @@ class TSSearch(object):
             'Total number of gradient evaluations (excluding pre-optimization and IRC): {0}'.format(self.ngrad)
         )
 
+    @util.logStartAndFinish
     def preoptimize(self, reactant=False):
         """
         Optimize the reactant (if `reactant` is set to `True`) and product
         geometries.
         """
-        logging.info('\n----------------------------------------------------------------------')
-        logging.info('Pre-optimization initiated on ' + time.asctime() + '\n')
-        start_time = time.time()
-
         kwargs = self.kwargs.copy()
         kwargs['theory'] = kwargs['theory_preopt']
 
@@ -140,10 +165,6 @@ class TSSearch(object):
             logging.info('Optimized product structure:\n' + str(self.product))
             logging.info('Energy ({0}) = {1}'.format(kwargs['theory'], self.product.energy))
 
-        logging.info('\nPre-optimization terminated on ' + time.asctime())
-        logging.info('Total pre-optimization run time: {0:.1f} s'.format(time.time() - start_time))
-        logging.info('----------------------------------------------------------------------\n')
-
     def executeStringMethod(self):
         """
         Run the string method with the options specified in `kwargs`. Return
@@ -154,13 +175,11 @@ class TSSearch(object):
         self.ngrad += fsm.ngrad
         return fsmpath
 
+    @util.logStartAndFinish
     def executeExactTSSearch(self):
         """
         Run the exact transition state search and update `self.ts`.
         """
-        logging.info('\n----------------------------------------------------------------------')
-        logging.info('Exact TS search initiated on ' + time.asctime() + '\n')
-        start_time = time.time()
         logging.info('Initial TS structure:\n' + str(self.ts) + '\nEnergy = ' + str(self.ts.energy))
 
         try:
@@ -176,20 +195,14 @@ class TSSearch(object):
 
         logging.info('Optimized TS structure:\n' + str(self.ts) + '\nEnergy = ' + str(self.ts.energy))
         logging.info('Number of gradient evaluations during exact TS search: {0}'.format(ngrad))
-        logging.info('\nExact TS search terminated successfully on ' + time.asctime())
-        logging.info('Total exact TS search run time: {0:.1f} s'.format(time.time() - start_time))
-        logging.info('----------------------------------------------------------------------\n')
         self.ngrad += ngrad
 
+    @util.logStartAndFinish
     def executeIRC(self):
         """
         Run an IRC calculation using the exact TS geometry and save the path to
         `self.irc`.
         """
-        logging.info('\n----------------------------------------------------------------------')
-        logging.info('IRC calculation initiated on ' + time.asctime() + '\n')
-        start_time = time.time()
-
         try:
             self.irc = self.ts.getIRCpath(self.Qclass, name='IRC', **self.kwargs)
         except QuantumError as e:
@@ -203,9 +216,6 @@ class TSSearch(object):
                 f.write(str(node) + '\n')
 
         logging.info('IRC path endpoints:\n' + str(self.irc[0]) + '\n****\n' + str(self.irc[-1]))
-        logging.info('\nIRC calculation terminated successfully on ' + time.asctime())
-        logging.info('Total IRC calculation run time: {0:.1f} s'.format(time.time() - start_time))
-        logging.info('----------------------------------------------------------------------\n')
 
     def checkResults(self):
         """
@@ -256,7 +266,7 @@ class TSSearch(object):
 if __name__ == '__main__':
     import argparse
 
-    from ard import initializeLog, readInput
+    from main import initializeLog, readInput
 
     # Set up parser for reading the input filename from the command line
     parser = argparse.ArgumentParser(description='A transition state search')

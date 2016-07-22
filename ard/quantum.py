@@ -1,6 +1,33 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+###############################################################################
+#
+#   ARD - Automatic Reaction Discovery
+#
+#   Copyright (c) 2016 Prof. William H. Green (whgreen@mit.edu) and Colin
+#   Grambow (cgrambow@mit.edu)
+#
+#   Permission is hereby granted, free of charge, to any person obtaining a
+#   copy of this software and associated documentation files (the "Software"),
+#   to deal in the Software without restriction, including without limitation
+#   the rights to use, copy, modify, merge, publish, distribute, sublicense,
+#   and/or sell copies of the Software, and to permit persons to whom the
+#   Software is furnished to do so, subject to the following conditions:
+#
+#   The above copyright notice and this permission notice shall be included in
+#   all copies or substantial portions of the Software.
+#
+#   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+#   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+#   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+#   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+#   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+#   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+#   DEALINGS IN THE SOFTWARE.
+#
+###############################################################################
+
 """
 Contains classes for reading data from quantum software log files and for
 executing quantum jobs.
@@ -8,13 +35,15 @@ executing quantum jobs.
 
 from __future__ import print_function, division
 
-import numpy as np
-
-import sys
+import logging
 import os
 import re
 import subprocess
+import sys
 
+import numpy as np
+
+import util
 import props
 
 ###############################################################################
@@ -31,33 +60,57 @@ class Quantum(object):
     """
     Base class from which other quantum software classes can inherit.
 
-    The attribute `logfile` represents the path where the log file of interest
-    is located and the attribute `lf_contents` contains the contents of the log
-    file in a list.
+    The attribute `input_file` represents the path where the input file for the
+    quantum job is located, the attribute `logfile` represents the path where
+    the log file containing the results is located and the attribute `output`
+    contains the output of the calculation in a list.
     """
 
-    def __init__(self, logfile=None):
+    def __init__(self, input_file=None, logfile=None):
+        self.input_file = input_file
         self.logfile = logfile
         if logfile is not None:
             self.read()
         else:
-            self.lf_contents = None
+            self.output = None
 
     def read(self):
         """
         Reads and returns the contents of the log file.
         """
         with open(self.logfile, 'r') as f:
-            self.lf_contents = f.read().splitlines()
+            self.output = f.read().splitlines()
 
     def clear(self):
         """
-        Deletes the log file and clears the associated attributes.
+        Deletes the input and log file and clears the associated attributes.
         """
-        if self.logfile is not None:
+        try:
+            os.remove(self.input_file)
+        except OSError:
+            pass
+
+        try:
             os.remove(self.logfile)
-            self.logfile = None
-            self.lf_contents = None
+        except OSError:
+            pass
+
+        self.input_file = None
+        self.logfile = None
+        self.output = None
+
+    def submitProcessAndCheck(self, cmd, *args):
+        """
+        Submits a quantum calculation and checks if errors occurred.
+        """
+        try:
+            util.submitProcess(cmd, *args)
+        except subprocess.CalledProcessError:
+            if os.path.isfile(self.logfile):
+                msg = 'Quantum job terminated with an error'
+                logging.error(msg)
+                raise QuantumError(msg)
+            raise
 
     @staticmethod
     def _formatArray(a):
@@ -79,7 +132,7 @@ class Gaussian(Quantum):
     jobs.
 
     The attribute `logfile` represents the path where the log file of interest
-    is located and the attribute `lf_contents` contains the contents of the log
+    is located and the attribute `output` contains the contents of the log
     file in a list.
     """
 
@@ -93,7 +146,7 @@ class Gaussian(Quantum):
         read = False
         natoms = 0
         i = 0
-        for line in self.lf_contents:
+        for line in self.output:
             if read:
                 i += 1
                 try:
@@ -104,17 +157,17 @@ class Gaussian(Quantum):
                     continue
             elif 'Input orientation' in line:
                 read = True
-        raise QuantumError('Number of atoms could not be found in Gaussian log file')
+        raise QuantumError('Number of atoms could not be found in Gaussian output')
 
     def getEnergy(self):
         """
         Extract and return energy (in Hartree) from Gaussian job.
         """
         # Return final energy
-        for line in reversed(self.lf_contents):
+        for line in reversed(self.output):
             if 'SCF Done' in line:
                 return float(line.split()[4])
-        raise QuantumError('Energy could not be found in Gaussian log file')
+        raise QuantumError('Energy could not be found in Gaussian output')
 
     def getGradient(self):
         """
@@ -125,12 +178,12 @@ class Gaussian(Quantum):
         natoms = self.getNumAtoms()
 
         # Read last occurrence of forces
-        for line_num, line in enumerate(reversed(self.lf_contents)):
+        for line_num, line in enumerate(reversed(self.output)):
             if 'Forces (Hartrees/Bohr)' in line:
-                force_mat_str = self.lf_contents[-(line_num - 2):-(line_num - 2 - natoms)]
+                force_mat_str = self.output[-(line_num - 2):-(line_num - 2 - natoms)]
                 break
         else:
-            raise QuantumError('Forces could not be found in Gaussian log file')
+            raise QuantumError('Forces could not be found in Gaussian output')
 
         # Create force array and convert units
         return - 1.88972613 * self._formatArray(force_mat_str)  # Return negative because gradient is desired
@@ -144,12 +197,12 @@ class Gaussian(Quantum):
         natoms = self.getNumAtoms()
 
         # Read last occurrence of geometry
-        for line_num, line in enumerate(reversed(self.lf_contents)):
+        for line_num, line in enumerate(reversed(self.output)):
             if 'Input orientation' in line:
-                coord_mat_str = self.lf_contents[-(line_num - 4):-(line_num - 4 - natoms)]
+                coord_mat_str = self.output[-(line_num - 4):-(line_num - 4 - natoms)]
                 break
         else:
-            raise QuantumError('Geometry could not be found in Gaussian log file')
+            raise QuantumError('Geometry could not be found in Gaussian output')
 
         # Create and return array containing geometry
         return self._formatArray(coord_mat_str)
@@ -161,41 +214,41 @@ class Gaussian(Quantum):
         corresponding energies.
         """
         # Ensure that logfile contains IRC calculation
-        for line in self.lf_contents:
+        for line in self.output:
             if 'IRC-IRC' in line:
                 break
         else:
-            raise QuantumError('Gaussian log file does not contain IRC calculation')
+            raise QuantumError('Gaussian output does not contain IRC calculation')
 
         # Find number of atoms
         natoms = self.getNumAtoms()
 
         # Read forward IRC path
         forwardpath = []
-        for line_num, line in enumerate(self.lf_contents):
+        for line_num, line in enumerate(self.output):
             if 'Input orientation' in line:
-                coord_mat = self._formatArray(self.lf_contents[line_num + 5:line_num + 5 + natoms])
+                coord_mat = self._formatArray(self.output[line_num + 5:line_num + 5 + natoms])
             elif 'SCF Done' in line:
                 energy = float(line.split()[4])
                 forwardpath.append((coord_mat, energy))
             elif 'FORWARD' in line:
                 break
         else:
-            raise QuantumError('Forward IRC path could not be found in Gaussian log file')
+            raise QuantumError('Forward IRC path could not be found in Gaussian output')
 
         # Read reverse IRC path
         reversepath = []
         energy = None
-        for line_num, line in enumerate(reversed(self.lf_contents)):
+        for line_num, line in enumerate(reversed(self.output)):
             if 'SCF Done' in line:
                 energy = float(line.split()[4])
             if 'Input orientation' in line and energy is not None:
-                coord_mat = self._formatArray(self.lf_contents[-(line_num - 4):-(line_num - 4 - natoms)])
+                coord_mat = self._formatArray(self.output[-(line_num - 4):-(line_num - 4 - natoms)])
                 reversepath.append((coord_mat, energy))
             elif 'FORWARD' in line:
                 break
         else:
-            raise QuantumError('Reverse IRC path could not be found in Gaussian log file')
+            raise QuantumError('Reverse IRC path could not be found in Gaussian output')
 
         return reversepath + forwardpath
 
@@ -205,23 +258,17 @@ class Gaussian(Quantum):
         Gaussian job.
         """
         ngrad = 0
-        for line in self.lf_contents:
+        for line in self.output:
             if 'Forces (Hartrees/Bohr)' in line:
                 ngrad += 1
         return ngrad
 
-    def executeJob(self, node, name='gau', jobtype='force',
-                   theory='m062x/cc-pvtz', nproc=32, mem='2000mb',
-                   output_dir='', **kwargs):
+    def makeInputFile(self, node, name='gau', jobtype='force', output_dir='',
+                      theory='m062x/cc-pvtz', nproc=32, mem='2000mb', **kwargs):
         """
-        Execute quantum job type using the Gaussian software package. This
-        method can only be run on a UNIX system where Gaussian is installed.
-        Requires that the geometry is input in the form of a :class:`node.Node`
-        object.
+        Create Gaussian input file and store path to file in instance
+        attribute.
         """
-        if not (sys.platform == 'linux' or sys.platform == 'linux2'):
-            raise OSError('Invalid operating system')
-
         jobtype = jobtype.lower()
         if jobtype == 'energy':
             jobtype = 'sp'
@@ -243,7 +290,6 @@ class Gaussian(Quantum):
         try:
             input_file = os.path.join(output_dir, name + '.com')
             with open(input_file, 'w') as f:
-                f.write('%chk=' + name + '.chk\n')
                 f.write('%mem=' + mem + '\n')
                 f.write('%nprocshared=' + str(int(nproc)) + '\n')
                 if jobtype == 'opt':
@@ -266,24 +312,33 @@ class Gaussian(Quantum):
             print('An error occurred while creating the Gaussian input file', file=sys.stderr)
             raise
 
-        # Run job and wait until termination
-        output_file = os.path.join(output_dir, name + '.log')
-        try:
-            subprocess.check_call(['g09', input_file, output_file])
-        except subprocess.CalledProcessError:
-            if os.path.isfile(output_file):
-                raise QuantumError('Gaussian job terminated with an error')
-            try:
-                subprocess.check_call(['g03', input_file, output_file])
-            except subprocess.CalledProcessError:
-                if os.path.isfile(output_file):
-                    raise QuantumError('Gaussian job terminated with an error')
-                raise Exception('Gaussian is not available')
+        self.input_file = input_file
 
-        # Remove unnecessary files and save log file
-        os.remove(input_file)
-        os.remove(name + '.chk')
-        self.logfile = output_file
+    def executeJob(self, node, name='gau', output_dir='', **kwargs):
+        """
+        Execute quantum job type using the Gaussian software package. This
+        method can only be run on a UNIX system where Gaussian is installed.
+        Requires that the geometry is input in the form of a :class:`node.Node`
+        object.
+        """
+        if not (sys.platform == 'linux' or sys.platform == 'linux2'):
+            raise OSError('Invalid operating system')
+
+        # Make input file
+        if self.input_file is None:
+            self.makeInputFile(node, name=name, output_dir=output_dir, **kwargs)
+
+        # Run job
+        self.logfile = os.path.join(output_dir, name + '.log')
+        try:
+            self.submitProcessAndCheck('g09', self.input_file, self.logfile)
+        except OSError as e:
+            if e.errno == os.errno.ENOENT:
+                self.submitProcessAndCheck('g03', self.input_file, self.logfile)
+            else:
+                raise
+
+        # Read output
         self.read()
 
 ###############################################################################
@@ -293,7 +348,7 @@ class NWChem(Quantum):
     Class for reading data from NWChem log files and for executing NWChem jobs.
 
     The attribute `logfile` represents the path where the log file of interest
-    is located and the attribute `lf_contents` contains the contents of the log
+    is located and the attribute `output` contains the contents of the log
     file in a list.
     """
 
@@ -304,9 +359,9 @@ class NWChem(Quantum):
         """
         Extract and return number of atoms from NWChem job.
         """
-        for line_num, line in enumerate(self.lf_contents):
+        for line_num, line in enumerate(self.output):
             if 'XYZ format geometry' in line:
-                return int(self.lf_contents[line_num + 2].split()[0])
+                return int(self.output[line_num + 2].split()[0])
         raise QuantumError('Number of atoms could not be found in NWChem log file')
 
     def getEnergy(self):
@@ -314,7 +369,7 @@ class NWChem(Quantum):
         Extract and return energy (in Hartree) from NWChem job.
         """
         # Return final energy
-        for line in reversed(self.lf_contents):
+        for line in reversed(self.output):
             if any(s in line for s in ('Total SCF energy', 'Total DFT energy')):
                 return float(line.split()[4])
             if any(s in line for s in ('Total CCSD energy:', 'Total CCSD(T) energy:')):
@@ -331,9 +386,9 @@ class NWChem(Quantum):
         natoms = self.getNumAtoms()
 
         # Read last occurrence of gradient
-        for line_num, line in enumerate(reversed(self.lf_contents)):
+        for line_num, line in enumerate(reversed(self.output)):
             if 'ENERGY GRADIENTS' in line:
-                grad_mat_str = self.lf_contents[-(line_num - 3):-(line_num - 3 - natoms)]
+                grad_mat_str = self.output[-(line_num - 3):-(line_num - 3 - natoms)]
                 break
         else:
             raise QuantumError('Gradient could not be found in NWChem log file')
@@ -350,9 +405,9 @@ class NWChem(Quantum):
         natoms = self.getNumAtoms()
 
         # Read last occurrence of geometry
-        for line_num, line in enumerate(reversed(self.lf_contents)):
+        for line_num, line in enumerate(reversed(self.output)):
             if 'Geometry "geometry"' in line:
-                coord_mat_str = self.lf_contents[-(line_num - 6):-(line_num - 6 - natoms)]
+                coord_mat_str = self.output[-(line_num - 6):-(line_num - 6 - natoms)]
                 break
         else:
             raise QuantumError('Geometry could not be found in NWChem log file')
@@ -367,7 +422,7 @@ class NWChem(Quantum):
         corresponding energies.
         """
         # Ensure that logfile contains IRC calculation
-        for line in self.lf_contents:
+        for line in self.output:
             if 'IRC optimization' in line:
                 break
         else:
@@ -377,9 +432,9 @@ class NWChem(Quantum):
         natoms = self.getNumAtoms()
 
         # Read TS geometry
-        for line_num, line in enumerate(self.lf_contents):
+        for line_num, line in enumerate(self.output):
             if 'Geometry "geometry"' in line:
-                ts_mat = self._formatArray(self.lf_contents[line_num + 7:line_num + 7 + natoms])
+                ts_mat = self._formatArray(self.output[line_num + 7:line_num + 7 + natoms])
             if any(s in line for s in ('Total SCF energy', 'Total DFT energy')):
                 ts_energy = float(line.split()[4])
                 break
@@ -389,11 +444,11 @@ class NWChem(Quantum):
         # Read forward IRC path
         forwardpath = []
         energy = None
-        for line_num, line in enumerate(self.lf_contents):
+        for line_num, line in enumerate(self.output):
             if 'Optimization converged' in line:
-                energy = float(self.lf_contents[line_num + 6].split()[2])
+                energy = float(self.output[line_num + 6].split()[2])
             if 'Geometry "geometry"' in line and energy is not None:
-                coord_mat = self._formatArray(self.lf_contents[line_num + 7:line_num + 7 + natoms])
+                coord_mat = self._formatArray(self.output[line_num + 7:line_num + 7 + natoms])
                 forwardpath.append((coord_mat, energy))
             elif 'Backward IRC' in line:
                 break
@@ -403,11 +458,11 @@ class NWChem(Quantum):
 
         # Read reverse IRC path
         reversepath = []
-        for line_num, line in enumerate(reversed(self.lf_contents)):
+        for line_num, line in enumerate(reversed(self.output)):
             if 'Geometry "geometry"' in line:
-                coord_mat = self._formatArray(self.lf_contents[-(line_num - 6):-(line_num - 6 - natoms)])
+                coord_mat = self._formatArray(self.output[-(line_num - 6):-(line_num - 6 - natoms)])
             if 'Optimization converged' in line:
-                energy = float(self.lf_contents[-(line_num - 5)].split()[2])
+                energy = float(self.output[-(line_num - 5)].split()[2])
                 reversepath.append((coord_mat, energy))
             elif 'Backward IRC' in line:
                 break
@@ -545,7 +600,7 @@ class QChem(Quantum):
     Class for reading data from Q-Chem log files and for executing Q-Chem jobs.
 
     The attribute `logfile` represents the path where the log file of interest
-    is located and the attribute `lf_contents` contains the contents of the log
+    is located and the attribute `output` contains the contents of the log
     file in a list.
     """
 
@@ -559,7 +614,7 @@ class QChem(Quantum):
         read = False
         natoms = 0
         i = 0
-        for line in self.lf_contents:
+        for line in self.output:
             if read:
                 i += 1
                 try:
@@ -577,7 +632,7 @@ class QChem(Quantum):
         Extract and return energy (in Hartree) from Q-Chem job.
         """
         # Return final energy
-        for line in reversed(self.lf_contents):
+        for line in reversed(self.output):
             if 'Final energy is' in line:
                 return float(line.split()[3])
             if 'Total energy' in line:
@@ -593,10 +648,10 @@ class QChem(Quantum):
         natoms = self.getNumAtoms()
 
         # Read last occurrence of gradient
-        for line_num, line in enumerate(reversed(self.lf_contents)):
+        for line_num, line in enumerate(reversed(self.output)):
             if 'Gradient of SCF Energy' in line:
                 num_lines = int(np.ceil(natoms / 6)) * 4
-                grad_mat_str = self.lf_contents[-line_num:-(line_num - num_lines)]
+                grad_mat_str = self.output[-line_num:-(line_num - num_lines)]
                 break
         else:
             raise QuantumError('Gradient could not be found in NWChem log file')
@@ -622,12 +677,12 @@ class QChem(Quantum):
         natoms = self.getNumAtoms()
 
         # Read last occurrence of geometry
-        for line_num, line in enumerate(reversed(self.lf_contents)):
+        for line_num, line in enumerate(reversed(self.output)):
             if 'Coordinates' in line:
-                coord_mat_str = self.lf_contents[-(line_num - 1):-(line_num - 1 - natoms)]
+                coord_mat_str = self.output[-(line_num - 1):-(line_num - 1 - natoms)]
                 break
             if 'Standard Nuclear Orientation' in line:
-                coord_mat_str = self.lf_contents[-(line_num - 2):-(line_num - 2 - natoms)]
+                coord_mat_str = self.output[-(line_num - 2):-(line_num - 2 - natoms)]
                 break
         else:
             raise QuantumError('Geometry could not be found in Q-Chem log file')
