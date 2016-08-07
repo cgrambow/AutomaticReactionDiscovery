@@ -1,57 +1,54 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+###############################################################################
+#
+#   ARD - Automatic Reaction Discovery
+#
+#   Copyright (c) 2016 Prof. William H. Green (whgreen@mit.edu) and Colin
+#   Grambow (cgrambow@mit.edu)
+#
+#   Permission is hereby granted, free of charge, to any person obtaining a
+#   copy of this software and associated documentation files (the "Software"),
+#   to deal in the Software without restriction, including without limitation
+#   the rights to use, copy, modify, merge, publish, distribute, sublicense,
+#   and/or sell copies of the Software, and to permit persons to whom the
+#   Software is furnished to do so, subject to the following conditions:
+#
+#   The above copyright notice and this permission notice shall be included in
+#   all copies or substantial portions of the Software.
+#
+#   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+#   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+#   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+#   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+#   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+#   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+#   DEALINGS IN THE SOFTWARE.
+#
+###############################################################################
+
 """
 Contains the :class:`ARD` for running an automatic reaction discovery. This
 includes filtering reactions, generating 3D geometries, and running transition
 state searches.
 """
 
+from __future__ import print_function
+
+import glob
 import logging
 import os
-import subprocess
-import sys
+import stat
 import time
 
 from rmgpy import settings
 from rmgpy.data.thermo import ThermoDatabase
 
-import util
 import gen3D
-from pgen import Generate
+import util
 from node import Node
-
-try:
-    from scoop.futures import map
-except ImportError:
-    logging.warning('Could not import SCOOP')
-
-###############################################################################
-
-def submitProcessAndWait(cmd, *args):
-    """
-    Submit process and wait for completion. Return exit code of process.
-    """
-    full_cmd = [cmd] + list(args)
-    proc = subprocess.Popen(full_cmd)
-    exit_code = proc.wait()
-    return exit_code
-
-class Copier(object):
-    """
-    Function object that creates picklable function, `fn`, with a constant
-    value for some arguments at the beginning of the function, set as
-    `self.args`. This enables using `fn` in conjunction with `map` if the
-    sequence being mapped to the function does not correspond to the first
-    function argument and if the function has multiple arguments.
-    """
-    def __init__(self, fn, *begin_args):
-        self.fn = fn
-        self.args = begin_args
-
-    def __call__(self, *end_args):
-        all_args = self.args + end_args  # Required in Python 2.7
-        return self.fn(*all_args)
+from pgen import Generate
 
 ###############################################################################
 
@@ -62,35 +59,41 @@ class ARD(object):
     runs transition state searches.
     The attributes are:
 
-    =============== ====================== ====================================
-    Attribute       Type                   Description
-    =============== ====================== ====================================
-    `reac_smi`      ``string``             A valid SMILES string describing the reactant structure
-    `reactant`      :class:`node.Node`     A node object describing the reactant structure
-    `nbreak`        ``int``                The maximum number of bonds that may be broken
-    `nform`         ``int``                The maximum number of bonds that may be formed
-    `dH_cutoff`     ``float``              Heat of reaction cutoff (kcal/mol) for reactions that are too endothermic
-    `forcefield`    ``str``                The force field for 3D geometry generation
-    `output_dir`    ``str``                The path to the output directory
-    =============== ====================== ====================================
+    =============== ======================== ==================================
+    Attribute       Type                     Description
+    =============== ======================== ==================================
+    `reac_smi`      ``string``               A valid SMILES string describing the reactant structure
+    `reactant`      :class:`node.Node`       A node object describing the reactant structure
+    `nbreak`        ``int``                  The maximum number of bonds that may be broken
+    `nform`         ``int``                  The maximum number of bonds that may be formed
+    `dh_cutoff`     ``float``                Heat of reaction cutoff (kcal/mol) for reactions that are too endothermic
+    `forcefield`    ``str``                  The force field for 3D geometry generation
+    `distance`      ``float``                The initial distance between molecules
+    `output_dir`    ``str``                  The path to the output directory
+    `logger`        :class:`logging.Logger`  The main logger
+    =============== ======================== ==================================
 
     """
 
-    def __init__(self, reac_smi, nbreak=3, nform=3, dH_cutoff=20.0, forcefield='mmff94', output_dir='', **kwargs):
+    def __init__(self, reac_smi, nbreak=3, nform=3, dh_cutoff=20.0,
+                 forcefield='mmff94', distance=3.5, output_dir='', **kwargs):
         self.reac_smi = reac_smi
         self.nbreak = int(nbreak)
         self.nform = int(nform)
-        self.dH_cutoff = float(dH_cutoff)
+        self.dh_cutoff = float(dh_cutoff)
         self.forcefield = forcefield
+        self.distance = float(distance)
         self.output_dir = output_dir
         self.reactant = None
+        log_level = logging.INFO
+        self.logger = util.initializeLog(log_level, os.path.join(self.output_dir, 'ARD.log'), logname='main')
 
     def initialize(self):
         """
         Initialize the ARD job. Return the :class:`gen3D.Molecule` object for
         the reactant.
         """
-        logging.info('\nARD initiated on ' + time.asctime() + '\n')
+        self.logger.info('\nARD initiated on ' + time.asctime() + '\n')
         reac_mol = self.generateReactant3D()
         self.logHeader()
         return reac_mol
@@ -103,7 +106,7 @@ class ARD(object):
         """
         reac_mol = gen3D.readstring('smi', self.reac_smi)
         reac_mol.addh()
-        reac_mol.gen3D()
+        reac_mol.gen3D(forcefield=self.forcefield, d=self.distance)
         self.reactant = reac_mol.toNode()
         return reac_mol
 
@@ -128,66 +131,62 @@ class ARD(object):
 
         # Filter reactions based on standard heat of reaction
         H298_reac = reac_mol.getH298(thermo_db)
-        prod_mols = [mol for mol in prod_mols if self.filterThreshold(H298_reac, mol, thermo_db)]
+        prod_mols = [mol for mol in prod_mols if self.filterThreshold(H298_reac, mol, thermo_db=thermo_db)]
 
-        # Generate 3D geometries
-        for i, mol in enumerate(prod_mols):
-            mol.gen3D(self.forcefield)
+        # Generate 3D geometries (make3D is False because coordinates already exist from the reactant)
+        # and make job files
+        if prod_mols:
+            self.logger.info('Feasible products:\n')
+            rxn_dir = util.makeOutputSubdirectory(self.output_dir, 'reactions')
 
-        # Run TS searches
-        input_paths = []
-        tssearch_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'tssearch.py')
-        logging.info('\nFeasible products:')
+            try:
+                example_script = glob.glob('submit.*')[0]
+            except IndexError:
+                raise Exception('Example submission script cannot be found')
+            else:
+                example_script_path = os.path.abspath(example_script)
 
-        # Create input files
-        for rxn, mol in enumerate(prod_mols):
-            output_dir = util.makeOutputSubdirectory(self.output_dir, '{0:03d}'.format(rxn))
-            kwargs['output_dir'] = output_dir
+            for rxn, mol in enumerate(prod_mols):
+                mol.gen3D(forcefield=self.forcefield, d=self.distance, make3D=False)
 
-            # Convert to :class:`node.Node` and create input file
-            product = mol.toNode()
-            logging.info('Reaction {0}:\n{1}\n{2}\n'.format(rxn, mol.write().strip(), product))
-            input_path = self.makeInputFile(product, **kwargs)
-            input_paths.append(input_path)
+                rxn_num = '{:03d}'.format(rxn)
+                rxn_name = 'rxn' + rxn_num
+                output_dir = util.makeOutputSubdirectory(rxn_dir, rxn_num)
+                kwargs['output_dir'] = output_dir
+                kwargs['logname'] = 'rxn' + rxn_num
 
-        # Run TS searches
-        if input_paths:
-            logging.info('Running TS searches...')
-            exit_codes = list(map(Copier(submitProcessAndWait, sys.executable, tssearch_path), input_paths))
+                product = mol.toNode()
+                self.logger.info('Reaction {}:\n{}\n{}\n'.format(rxn, mol.write().strip(), product))
 
-            successful, unsuccessful = [], []
-            for rxn, exit_code in enumerate(exit_codes):
-                if exit_code == 0:
-                    successful.append(rxn)
-                else:
-                    unsuccessful.append(rxn)
-            logging.info('Successful reactions: {}'.format(successful))
-            logging.info('Unsuccessful reactions: {}'.format(unsuccessful))
+                self.makeInputFile(product, **kwargs)
+                job_script = makeBatchSubmissionScript(rxn_name, example_script_path, output_dir)
+
+            job_cmd = kwargs.get('job_cmd', 'qsub')
+            makeOverallSubmissionScript(job_cmd, job_script, self.output_dir)
         else:
-            logging.info('No feasible products found')
+            self.logger.info('No feasible products found')
 
         # Finalize
         self.finalize(start_time)
 
-    @staticmethod
-    def finalize(start_time):
+    def finalize(self, start_time):
         """
         Finalize the job.
         """
-        logging.info('\nARD terminated on ' + time.asctime())
-        logging.info('Total ARD run time: {0:.1f} s'.format(time.time() - start_time))
+        self.logger.info('\nARD terminated on ' + time.asctime())
+        self.logger.info('Total ARD run time: {:.1f} s'.format(time.time() - start_time))
 
     def filterThreshold(self, H298_reac, prod_mol, thermo_db=None):
         """
         Filter threshold based on standard enthalpies of formation of reactants
         and products. Returns `True` if the heat of reaction is less than
-        `self.dH_cutoff`, `False` otherwise.
+        `self.dh_cutoff`, `False` otherwise.
         """
         # Calculate enthalpy of formation and heat of reaction
         H298_prod = prod_mol.getH298(thermo_db)
         dH = H298_prod - H298_reac
 
-        if dH < self.dH_cutoff:
+        if dH < self.dh_cutoff:
             return True
         return False
 
@@ -199,11 +198,11 @@ class ARD(object):
 
         with open(path, 'w') as f:
             for key, val in kwargs.iteritems():
-                if key not in ('reac_smi', 'nbreak', 'nform', 'output_dir'):
+                if key not in ('job_cmd', 'reac_smi', 'nbreak', 'nform', 'dh_cutoff', 'forcefield', 'distance',
+                               'output_dir'):
                     f.write('{0}  {1}\n'.format(key, val))
             f.write('\n')
             f.write('geometry (\n0 {0}\n{1}\n****\n{2}\n)\n'.format(self.reactant.multiplicity, self.reactant, product))
-            f.write('\n')
 
         return path
 
@@ -211,51 +210,75 @@ class ARD(object):
         """
         Output a log file header.
         """
-        logging.info('######################################################################')
-        logging.info('#################### AUTOMATIC REACTION DISCOVERY ####################')
-        logging.info('######################################################################')
-        logging.info('Reactant SMILES: ' + self.reac_smi)
-        logging.info('Reactant coordinates:\n' + str(self.reactant))
-        logging.info('Maximum number of bonds to be broken: ' + str(self.nbreak))
-        logging.info('Maximum number of bonds to be formed: ' + str(self.nform))
-        logging.info('Heat of reaction cutoff: {0:.1f} kcal/mol'.format(self.dH_cutoff))
-        logging.info('Force field for 3D structure generation: ' + self.forcefield)
-        logging.info('######################################################################\n')
+        self.logger.info('######################################################################')
+        self.logger.info('#################### AUTOMATIC REACTION DISCOVERY ####################')
+        self.logger.info('######################################################################')
+        self.logger.info('Reactant SMILES: ' + self.reac_smi)
+        self.logger.info('Reactant coordinates:\n' + str(self.reactant))
+        self.logger.info('Maximum number of bonds to be broken: ' + str(self.nbreak))
+        self.logger.info('Maximum number of bonds to be formed: ' + str(self.nform))
+        self.logger.info('Heat of reaction cutoff: {:.1f} kcal/mol'.format(self.dh_cutoff))
+        self.logger.info('Force field for 3D structure generation: ' + self.forcefield)
+        self.logger.info('######################################################################\n')
 
 ###############################################################################
 
-def initializeLog(level, logfile):
+def makeBatchSubmissionScript(name, example_script, outdir):
     """
-    Configure a logger. `level` is an integer parameter specifying how much
-    information is displayed in the log file. The levels correspond to those of
-    the :data:`logging` module.
+    Create a batch submission script for a TS search job given a path to the
+    example script and a path to the target directory. Everywhere the string
+    "NAME" appears in the model script, it will be replaced by `name`. Return
+    the path to the submission script.
     """
-    # Create logger
-    logger = logging.getLogger()
-    logger.setLevel(level)
+    outpath = os.path.join(outdir, 'submit.sh')
 
-    logging.addLevelName(logging.CRITICAL, 'CRITICAL: ')
-    logging.addLevelName(logging.ERROR, 'ERROR: ')
-    logging.addLevelName(logging.WARNING, 'WARNING: ')
-    logging.addLevelName(logging.INFO, '')
-    logging.addLevelName(logging.DEBUG, '')
+    with open(example_script, 'r') as infile, open(outpath, 'wb') as outfile:
+        for line in infile:
+            line = line.replace('NAME', name)
+            outfile.write(line)
 
-    # Create formatter
-    formatter = logging.Formatter('%(levelname)s%(message)s')
+    return outpath
 
-    # Create file handler
-    if os.path.exists(logfile):
-        os.remove(logfile)
-    fh = logging.FileHandler(filename=logfile)
-    fh.setLevel(min(logging.DEBUG, level))
-    fh.setFormatter(formatter)
+def makeOverallSubmissionScript(cmd, job_script, outdir):
+    """
+    Create a bash shell script that when run will submit all TS search jobs to
+    the job scheduler. The name of all job scripts has be given in `job_script`
+    (or the path) and the command for submitting a job has to be specified in
+    `cmd`.
 
-    # Remove old handlers
-    while logger.handlers:
-        logger.removeHandler(logger.handlers[0])
+    Note: The script can be run as often as desired. It will only submit jobs
+    that have not yet been submitted, which is useful if there is a limit to
+    the number of jobs that can be submitted. Once all jobs in the queue have
+    executed, the "submitted_jobs" file can be deleted and the script can be
+    re-run to submit jobs that may have failed for an abnormal reason before
+    creating a log file.
+    """
+    script = os.path.join(outdir, 'submitTSjobs.sh')
 
-    # Add file handler
-    logger.addHandler(fh)
+    with open(script, 'wb') as f:
+        f.write('#!/bin/bash\n\n')
+        f.write('for d in reactions/[0-9]*/\n')
+        f.write('do\n')
+        f.write('   cd $d\n')
+        f.write("   j=`echo $d | sed 's/[^0-9]*//g'`\n\n")
+        f.write('   if [ -s rxn*.log ]\n')
+        f.write('   then\n')
+        f.write('      cd ../..\n')
+        f.write('      continue\n')
+        f.write('   fi\n\n')
+        f.write('   grep -Fxqs "$j" ../../submitted_jobs\n')
+        f.write('   if [ $? -ne 0 ]\n')
+        f.write('   then\n')
+        f.write('      {} {}\n'.format(cmd, os.path.basename(job_script)))
+        f.write('      if [ $? -eq 0 ]\n')
+        f.write('      then\n')
+        f.write('         echo $j >> ../../submitted_jobs\n')
+        f.write('      fi\n')
+        f.write('   fi\n\n')
+        f.write('   cd ../..\n')
+        f.write('done\n')
+
+    os.chmod(script, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP | stat.S_IROTH)
 
 ###############################################################################
 
@@ -284,8 +307,9 @@ def readInput(input_file):
     A dictionary containing all input parameters and their values is returned.
     """
     # Allowed keywords
-    keys = ('reac_smi', 'nbreak', 'nform', 'dH_cutoff', 'forcefield', 'method', 'nsteps', 'nnode', 'lsf',
-            'tol', 'gtol', 'nlstnodes', 'qprog', 'theory', 'theory_preopt', 'reac_preopt', 'nproc', 'mem')
+    keys = ('job_cmd', 'reac_smi', 'nbreak', 'nform', 'dh_cutoff', 'forcefield', 'distance', 'logname'
+            'method', 'nsteps', 'nnode', 'lsf', 'tol', 'gtol', 'nlstnodes',
+            'qprog', 'theory', 'theory_preopt', 'nproc', 'mem')
 
     # Read all data from file
     with open(input_file, 'r') as f:
@@ -349,6 +373,6 @@ def readInput(input_file):
         raise Exception('Invalid method')
     else:
         if method != 'gsm' and method != 'fsm':
-            raise Exception('Invalid method: {0}'.format(method))
+            raise Exception('Invalid method: {}'.format(method))
 
     return input_dict

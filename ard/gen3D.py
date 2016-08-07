@@ -36,6 +36,7 @@ RMG database values.
 
 from __future__ import division
 
+import math
 import os
 
 import pybel
@@ -54,12 +55,36 @@ def readstring(format, string):
     mol = pybel.readstring(format, string)
     return Molecule(mol.OBMol)
 
-def make3DandOpt(mol, forcefield='mmff94'):
+def make3DandOpt(mol, forcefield='mmff94', make3D=True):
     """
     Generate 3D coordinates and optimize them using a force field.
     """
-    mol.make3D(forcefield=forcefield)
+    if make3D:
+        mol.make3D(forcefield=forcefield)
     mol.localopt(forcefield=forcefield)
+
+# def genConformers(mol, forcefield='mmff94', nconf_max=3, steps=1000):
+#     """
+#     Generate conformers of `mol` using a weighted rotor search. This assumes
+#     that the molecule has coordinates and that they are optimized.
+#     """
+#     ff = pybel.ob.OBForceField.FindForceField(forcefield)
+#     numrots = mol.OBMol.NumRotors()
+#     if numrots > 0:
+#         nconf = min(numrots, nconf_max)
+#         ff.WeightedRotorSearch(nconf, int(math.log(numrots + 1) * steps))
+#         ff.GetConformers(mol.OBMol)
+
+def setLowestEnergyConformer(mol, forcefield='mmff94', steps=2000):
+    """
+    Set the coordinates of `mol` to the lowest energy conformer as determined
+    by a weighted rotor search.
+    """
+    ff = pybel.ob.OBForceField.FindForceField(forcefield)
+    numrots = mol.OBMol.NumRotors()
+    if numrots > 0:
+        ff.WeightedRotorSearch(numrots + 1, int(math.log(numrots + 1) * steps))
+        ff.GetCoordinates(mol.OBMol)
 
 ###############################################################################
 
@@ -77,6 +102,8 @@ class Molecule(pybel.Molecule):
     `mols_indices`  ``list``                 Tuple of lists containing indices of atoms in the molecules
     =============== ======================== ==================================
 
+    Note: The molecule should have all hydrogen atoms explicitly assigned. If
+    this is not the case, then segmentation faults may occur.
     """
 
     def __init__(self, OBMol):
@@ -92,13 +119,32 @@ class Molecule(pybel.Molecule):
         # Create new empty instance
         m = Molecule(pybel.ob.OBMol())
 
-        # Add atoms and bonds
         for atom in self:
             m.OBMol.AddAtom(atom.OBAtom)
         for bond in pybel.ob.OBMolBondIter(self.OBMol):
             m.OBMol.AddBond(bond)
 
-        # Return copy
+        m.OBMol.SetTotalSpinMultiplicity(self.spin)
+        m.OBMol.SetHydrogensAdded()
+        return m
+
+    def copyWithNewBonds(self, bonds):
+        """
+        Create copy of atoms in `self` and connect them using the bonds
+        specified in `bonds`. Multiplicities on atoms are assigned assuming
+        that hydrogens are specified explicitly.
+        """
+        # Create new empty instance
+        m = Molecule(pybel.ob.OBMol())
+
+        for atom in self:
+            m.OBMol.AddAtom(atom.OBAtom)
+        for bond in bonds:
+            m.OBMol.AddBond(bond[0] + 1, bond[1] + 1, bond[2])
+
+        m.assignSpinMultiplicity()
+        m.OBMol.SetTotalSpinMultiplicity(self.spin)
+        m.OBMol.SetHydrogensAdded()
         return m
 
     def toNode(self):
@@ -121,6 +167,19 @@ class Molecule(pybel.Molecule):
         spc.label = smiles
         return spc
 
+    def assignSpinMultiplicity(self):
+        """
+        Assigns the spin multiplicity of all atoms based on connectivity. This
+        function assumes that all hydrogens are specified explicitly.
+        """
+        self.OBMol.SetSpinMultiplicityAssigned()
+
+        for atom in self:
+            diff = atom.OBAtom.GetImplicitValence() - (atom.OBAtom.GetHvyValence() +
+                                                       atom.OBAtom.ExplicitHydrogenCount())
+            if diff:
+                atom.OBAtom.SetSpinMultiplicity(diff + 1)
+
     def getH298(self, thermo_db=None):
         """
         Compute and return the standard enthalpy of formation of the structure
@@ -141,32 +200,34 @@ class Molecule(pybel.Molecule):
             spc.thermo = thermo_db.getThermoData(spc)
             H298 += spc.thermo.H298.value_si / 4184
 
-        # Return enthalpy of all molecules
+        # Return combined enthalpy of all molecules
         return H298
 
-    def gen3D(self, forcefield='mmff94'):
+    def gen3D(self, forcefield='mmff94', d=3.5, make3D=True):
         """
-        Generate 3D coordinates using the specified force field.
+        Generate 3D coordinates using the specified force field. If there are
+        multiple molecules, they are separated by a distance of `d` in
+        Angstrom.
         """
-        # Separate molecules
+        spin = self.spin
         self.separateMol()
 
         # Arrange molecules in space and generate 3D geometries separately
         if len(self.mols) > 1:
             arrange3D = Arrange3D(self.mols)
-            arrange3D.arrangeIn3D(forcefield)
+            arrange3D.arrangeIn3D(forcefield=forcefield, d=d, make3D=make3D)
 
-            # Merge molecules
             self.mergeMols()
+            self.OBMol.SetTotalSpinMultiplicity(spin)
         else:
-            make3DandOpt(self, forcefield)
+            make3DandOpt(self, forcefield=forcefield, make3D=make3D)
+            setLowestEnergyConformer(self, forcefield=forcefield)
 
     def separateMol(self):
         """
         Separate molecule based on the indices in `self.mols_indices`.
         """
         if self.mols is None:
-            # Perform connectivity analysis
             if self.mols_indices is None:
                 self.connectivityAnalysis()
 
@@ -174,7 +235,6 @@ class Molecule(pybel.Molecule):
             if nmols > 1:
                 self.mols = []
                 for mol_idx in range(nmols):
-                    # Create copy
                     mol = self.copy()
 
                     # Obtain indices of all atoms to be deleted for current molecule and obtain corresponding atoms
@@ -187,7 +247,7 @@ class Molecule(pybel.Molecule):
                     for atom in del_atoms:
                         mol.OBMol.DeleteAtom(atom)
 
-                    # Append to list of molecules
+                    mol.OBMol.SetHydrogensAdded()
                     self.mols.append(mol)
             else:
                 self.mols = [self]
@@ -199,7 +259,6 @@ class Molecule(pybel.Molecule):
         `self.mols_indices`.
         """
         if self.mols is not None:
-            # Clear current molecule
             self.OBMol.Clear()
 
             # Loop through molecules and append atoms and bonds in order
@@ -215,11 +274,11 @@ class Molecule(pybel.Molecule):
 
             # Reorder atoms
             mols_indices_new = [atom_idx for mol_indices in self.mols_indices for atom_idx in mol_indices]
-
             neworder = natoms * [0]
             for i, atom_idx in enumerate(mols_indices_new):
                 neworder[atom_idx] = i + 1
             self.OBMol.RenumberAtoms(neworder)
+            self.OBMol.SetHydrogensAdded()
 
     def connectivityAnalysis(self):
         """
@@ -291,7 +350,7 @@ class Arrange3D(object):
             raise Exception('More than 4 molecules are not supported')
         self.mols = mols
 
-    def gen3D(self, forcefield='mmff94'):
+    def gen3D(self, forcefield='mmff94', make3D=True):
         """
         Generate 3D geometries for each molecule.
         """
@@ -306,17 +365,17 @@ class Arrange3D(object):
                 mol.atoms[0].OBAtom.SetVector(0.0, 0.0, 0.0)
                 mol.atoms[1].OBAtom.SetVector(1.21, 0.0, 0.0)
             else:
-                make3DandOpt(mol, forcefield=forcefield)
+                make3DandOpt(mol, forcefield=forcefield, make3D=make3D)
+                setLowestEnergyConformer(mol, forcefield=forcefield)
 
-    def arrangeIn3D(self, forcefield='mmff94', d=2.5):
+    def arrangeIn3D(self, forcefield='mmff94', d=3.5, make3D=True):
         """
         Arrange the molecules in 3D-space by modifying their coordinates. Two
         molecules are arranged in a line, three molecules in a triangle, and
         four molecules in a square. The molecules are separated by a distance
         `d` in Angstrom (excluding molecular radii).
         """
-        # Generate geometries
-        self.gen3D(forcefield)
+        self.gen3D(forcefield=forcefield, make3D=make3D)
 
         # Center molecules and find their approximate radii
         sizes = self.centerAndFindDistances()
@@ -357,7 +416,7 @@ class Arrange3D(object):
         """
         max_distances = []
         for mol in self.mols:
-            mol.OBMol.Center()
+            mol.OBMol.ToInertialFrame()
             max_distance, distance_prev = 0.0, 0.0
             for atom in mol:
                 distance = atom.vector.length()

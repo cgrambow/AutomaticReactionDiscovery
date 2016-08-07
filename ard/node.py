@@ -39,8 +39,8 @@ from __future__ import print_function, division
 import sys
 
 import numpy as np
+import pybel
 
-import util
 import props
 
 ###############################################################################
@@ -75,9 +75,10 @@ class Node(object):
         # self.atoms can be generated from atomic numbers or from atom labels
         self.atoms = []
         for num in atoms:
-            if num in props.atomnum.values():
-                self.atoms.append(props.atomnum_inv[num])
-                continue
+            if isinstance(num, basestring):
+                if num.upper() in props.atomnum.values():
+                    self.atoms.append(props.atomnum_inv[num])
+                    continue
             if int(num) not in props.atomnum.keys():
                 raise ValueError('Invalid atomic number or symbol: {0}'.format(num))
             self.atoms.append(int(num))
@@ -90,7 +91,7 @@ class Node(object):
 
     def __str__(self):
         """
-        Return a human readable string representation of the object
+        Return a human readable string representation of the object.
         """
         return_string = ''
         for atom_num, atom in enumerate(self.coordinates):
@@ -109,6 +110,13 @@ class Node(object):
         Return a string of the node in the XYZ file format.
         """
         return str(len(self.atoms)) + '\n\n' + str(self)
+
+    def toPybelMol(self):
+        """
+        Convert node to a :class:`pybel.Molecule` object.
+        """
+        mol = pybel.readstring('xyz', self.getXYZ())
+        return mol
 
     def getTotalMass(self, atoms=None):
         """
@@ -163,7 +171,6 @@ class Node(object):
         """
         self.coordinates = (rot_mat.dot(self.coordinates.T)).T
 
-    @util.timeFn
     def computeEnergy(self, Qclass, **kwargs):
         """
         Compute and set energy of the node using the quantum program specified
@@ -174,7 +181,6 @@ class Node(object):
         self.energy = q.getEnergy()
         q.clear()
 
-    @util.timeFn
     def computeGradient(self, Qclass, **kwargs):
         """
         Compute and set gradient and energy of the node using the quantum
@@ -186,7 +192,6 @@ class Node(object):
         self.gradient = q.getGradient()
         q.clear()
 
-    @util.timeFn
     def optimizeGeometry(self, Qclass, ts=False, **kwargs):
         """
         Perform a geometry optimization of the node using the quantum program
@@ -207,17 +212,17 @@ class Node(object):
 
         return ngrad
 
-    @util.timeFn
     def getIRCpath(self, Qclass, **kwargs):
         """
         Execute an IRC path calculation assuming that the current node geometry
         corresponds to a transition state. A list of :class:`node.Node` objects
         (with coordinates and energies) representing the nodes along the IRC
-        path are returned.
+        path, and the number of gradient evaluations are returned.
         """
         q = Qclass()
         q.executeJob(self, jobtype='irc', **kwargs)
         path = q.getIRCpath()
+        ngrad = q.getNumGrad()
         q.clear()
 
         nodepath = []
@@ -226,7 +231,7 @@ class Node(object):
             node.energy = element[1]
             nodepath.append(node)
 
-        return nodepath
+        return nodepath, ngrad
 
     def getDistance(self, other=None):
         """

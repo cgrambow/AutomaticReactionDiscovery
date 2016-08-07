@@ -34,7 +34,6 @@ Contains the :class:`Generate` for generating product structures.
 
 import pybel
 
-import gen3D
 import props
 
 ###############################################################################
@@ -61,6 +60,9 @@ class Generate(object):
     `prod_mols`     ``list``                   A list of :class:`gen3D.Molecule` product structures
     =============== ========================== ================================
 
+    Note: Bonds are represented as
+          (beginAtomIdx, endAtomIdx, bondOrder, stereoFlag)
+          where `stereoFlag` indicates a possible cis/trans stereo center
     """
 
     def __init__(self, reac_mol):
@@ -96,19 +98,16 @@ class Generate(object):
 
         # Extract valences as a mutable sequence
         reactant_valences = [atom.OBAtom.BOSum() for atom in self.reac_mol]
-        # Zero valences are indicated by 15
-        reactant_valences = [15 if v == 0 else v for v in reactant_valences]
 
-        # Initialize set for storing product bonds and valences
+        # Initialize set for storing bonds of products
         # A set is used to ensure that no duplicate products are added
-        products = set([])
+        products_bonds = set()
 
         # Generate all possibilities for forming bonds
-        bonds_form_all = []
-        for atom1_idx in range(len(self.atoms) - 1):
-            for atom2_idx in range(atom1_idx + 1, len(self.atoms)):
-                bonds_form_all.append((atom1_idx, atom2_idx, 1))
-        bonds_form_all = tuple(bonds_form_all)
+        natoms = len(self.atoms)
+        bonds_form_all = [(atom1_idx, atom2_idx, 1)
+                          for atom1_idx in range(natoms - 1)
+                          for atom2_idx in range(atom1_idx + 1, natoms)]
 
         # Generate products
         bf_combinations = ((0, 1), (1, 0), (1, 1), (1, 2), (2, 1), (2, 2), (2, 3), (3, 1), (3, 2), (3, 3))
@@ -117,17 +116,16 @@ class Generate(object):
                 self._generateProductsHelper(
                     bf[0],
                     bf[1],
-                    products,
+                    products_bonds,
                     reactant_bonds,
                     reactant_valences,
                     bonds_form_all
                 )
 
-        # Convert to Molecule object and append to list of product molecules
-        if products:
-            for product in products:
-                molblock = self.writeMolblock(product[0], product[1])
-                mol = gen3D.readstring('mdl', molblock)
+        # Convert all products to Molecule objects and append to list of product molecules
+        if products_bonds:
+            for bonds in products_bonds:
+                mol = self.reac_mol.copyWithNewBonds(bonds)
 
                 # Only append if product molecule is not the same as reactant
                 if mol.write('can').strip() != self.reac_smi:
@@ -146,7 +144,7 @@ class Generate(object):
             bonds_broken = []
         if nbreak == 0 and nform == 0:
             # If no more bonds are to be changed, then add product (base case)
-            products.add((tuple(sorted(bonds)), tuple(valences)))
+            products.add((tuple(sorted(bonds))))
         if nbreak > 0:
             # Break bond
             for bond_break_idx, bond_break in enumerate(bonds):
@@ -237,7 +235,7 @@ class Generate(object):
                 except ValueError:  # Add new bond if it does not exist yet
                     return bonds + (new_bond,)
                 else:  # Raise exception if trying to exceed triple bond
-                    raise StructureError('Bond type cannot be higher than triple bond for bond {0}'.format(bonds[idx]))
+                    raise StructureError('Bond type cannot be higher than triple bond for bond {}'.format(bonds[idx]))
             else:  # Return bonds with double bond increased to triple bond
                 return bonds[:idx] + (bonds[idx][:2] + (3,),) + bonds[(idx + 1):]
         else:  # Return bonds with single bond increased to double bond
@@ -255,30 +253,18 @@ class Generate(object):
         valences_temp = valences[:]
 
         # Check for invalid operation
-        if valences_temp[bond[0]] == 15 and inc < 0 or valences_temp[bond[1]] == 15 and inc < 0:
-            raise Exception('Cannot decrease valence on zero-valent atom')
+        if inc < 0 and (valences_temp[bond[0]] < inc or valences_temp[bond[1]] < inc):
+            raise Exception('Cannot decrease valence below zero-valence')
 
-        # Change valences of both atoms participating in bond and set valence of zero to 15
+        # Change valences of both atoms participating in bond
         valences_temp[bond[0]] += inc
         valences_temp[bond[1]] += inc
-        if valences_temp[bond[0]] == 0:
-            valences_temp[bond[0]] = 15
-        elif valences_temp[bond[0]] > 15:
-            valences_temp[bond[0]] -= 15
-        elif valences_temp[bond[0]] < 0:
-            raise Exception('Cannot decrease valence further than zero valence')
-        if valences_temp[bond[1]] == 0:
-            valences_temp[bond[1]] = 15
-        elif valences_temp[bond[1]] > 15:
-            valences_temp[bond[1]] -= 15
-        elif valences_temp[bond[1]] < 0:
-            raise Exception('Cannot decrease valence further than zero valence')
 
         # Check if maximum valences are exceeded
-        if 15 > valences_temp[bond[0]] > props.maxvalences[self.atoms[bond[0]]]:
-            raise StructureError('Maximum valence on atom {0} exceeded'.format(bond[0]))
-        if 15 > valences_temp[bond[1]] > props.maxvalences[self.atoms[bond[1]]]:
-            raise StructureError('Maximum valence on atom {0} exceeded'.format(bond[1]))
+        if valences_temp[bond[0]] > props.maxvalences[self.atoms[bond[0]]]:
+            raise StructureError('Maximum valence on atom {} exceeded'.format(bond[0]))
+        if valences_temp[bond[1]] > props.maxvalences[self.atoms[bond[1]]]:
+            raise StructureError('Maximum valence on atom {} exceeded'.format(bond[1]))
 
         # Return valid valences
         return valences_temp
@@ -292,17 +278,17 @@ class Generate(object):
         Note: Atom indices in the MDL representation start at 1.
         """
         # Create counts line of MDL format
-        counts_line = '{0:>3}{1:>3}  0  0  0  0  0  0  0  0999 V2000\n'.format(len(self.atoms), len(bonds))
+        counts_line = '{:>3}{:>3}  0  0  0  0  0  0  0  0999 V2000\n'.format(len(self.atoms), len(bonds))
 
         # Create atom block of MDL format
         atom_block = ''
         for idx, atom in enumerate(self.atoms):
-            atom_block += ('    0.0000    0.0000    0.0000 {0:<3} 0  0  0  0  0{1:>3}  0  0  0  0  0  0\n'.
+            atom_block += ('    0.0000    0.0000    0.0000 {:<3} 0  0  0  0  0{:>3}  0  0  0  0  0  0\n'.
                            format(props.atomnum[atom], valences[idx]))
 
         # Create bond block of MDL format
         bond_block = ''
         for bond in bonds:
-            bond_block += '{0:>3}{1:>3}{2:>3}  0  0  0\n'.format(bond[0] + 1, bond[1] + 1, bond[2])
+            bond_block += '{:>3}{:>3}{:>3}  0  0  0\n'.format(bond[0] + 1, bond[1] + 1, bond[2])
 
         return '\n\n\n' + counts_line + atom_block + bond_block + 'M  END\n'
