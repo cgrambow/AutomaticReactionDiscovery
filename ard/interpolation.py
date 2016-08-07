@@ -40,13 +40,14 @@ so that these can be serialized for map functions of parallelization packages.
 from __future__ import division
 
 import copy_reg
-import logging
 import multiprocessing
 import types
+import warnings
 
 import numpy as np
 from scipy import optimize
 
+import util
 from node import Node
 
 ###############################################################################
@@ -98,12 +99,6 @@ class CartesianInterp(object):
         self.node_start = node_start
         self.node_end = node_end
 
-    def __str__(self):
-        """
-        Return a human readable string representation of the object
-        """
-        return 'Cartesian interpolation object between nodes\n' + str(self.node_start) + '\nand\n' + str(self.node_end)
-
     def getCartNode(self, f):
         """
         Generates a node at fractional distance, `f`, between start and end
@@ -142,30 +137,8 @@ class LST(CartesianInterp):
     def __init__(self, node_start, node_end, nproc=1):
         super(LST, self).__init__(node_start, node_end)
         self.nproc = nproc
-        self.node_start_r = self.getDistMat(node_start.coordinates)
-        self.node_end_r = self.getDistMat(node_end.coordinates)
-
-    def __str__(self):
-        """
-        Return a human readable string representation of the object
-        """
-        return 'LST path object between nodes\n' + str(self.node_start) + '\nand\n' + str(self.node_end)
-
-    @staticmethod
-    def getDistMat(coords):
-        """
-        Calculate and return distance matrix form given a 3N x 3 array of
-        Cartesian coordinates. The matrix is N x N. Only the upper diagonal
-        elements contain the distances. All other elements are set to 0.
-        """
-        coords = coords.reshape(np.size(coords) // 3, 3)
-        x = coords[:, 0]
-        y = coords[:, 1]
-        z = coords[:, 2]
-        dx = x[..., np.newaxis] - x[np.newaxis, ...]
-        dy = y[..., np.newaxis] - y[np.newaxis, ...]
-        dz = z[..., np.newaxis] - z[np.newaxis, ...]
-        return np.triu((np.array([dx, dy, dz]) ** 2).sum(axis=0) ** 0.5)
+        self.node_start_r = util.getDistMat(node_start.coordinates)
+        self.node_end_r = util.getDistMat(node_end.coordinates)
 
     def LSTobjective(self, w, f):
         """
@@ -179,8 +152,7 @@ class LST(CartesianInterp):
         r_interpolated = self.node_start_r + f * (self.node_end_r - self.node_start_r)
         w_interpolated = self.node_start.coordinates.flatten() + f * (self.node_end.coordinates.flatten() -
                                                                       self.node_start.coordinates.flatten())
-        # Get distance matrix
-        r = self.getDistMat(w)
+        r = util.getDistMat(w)
 
         distance_term = 0.0
         for d in range(1, len(self.node_start.atoms)):
@@ -202,7 +174,7 @@ class LST(CartesianInterp):
         result = optimize.minimize(self.LSTobjective, w_guess, args=(f,), method='BFGS', options={'gtol': 1e-3})
         if not result.success:
             msg = 'LST minimization terminated with status ' + str(result.status) + ':\n' + result.message + '\n'
-            logging.warning(msg)
+            warnings.warn(msg)
         return Node(result.x, self.node_start.atoms, self.node_start.multiplicity)
 
     def getLSTpath(self, nnodes=100):
@@ -218,7 +190,7 @@ class LST(CartesianInterp):
         """
         inc = 1.0 / (nnodes - 1)
 
-        # Compute LST path in parallel and add start and end node to path
+        # Compute LST path and add start and end node to path
         if self.nproc > 1:
             pool = multiprocessing.Pool(self.nproc)
             path = list(pool.map(self.getLSTnode, np.linspace(inc, 1.0 - inc, nnodes - 2)))

@@ -37,11 +37,13 @@ import logging
 import os
 import time
 
-import pybel
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 
-import util
-from quantum import Gaussian, NWChem, QChem, QuantumError
-from sm import FSM
+import ard.util
+from ard.quantum import Gaussian, NWChem, QChem, QuantumError
+from ard.sm import FSM
 
 ###############################################################################
 
@@ -60,22 +62,24 @@ class TSSearch(object):
     calculation.
     The attributes are:
 
-    ============== ====================== =====================================
-    Attribute      Type                   Description
-    ============== ====================== =====================================
-    `reactant`     :class:`node.Node`     A node object containing the coordinates and atoms of the reactant molecule
-    `product`      :class:`node.Node`     A node object containing the coordinates and atoms of the product molecule
-    `ts`           :class:`node.Node`     The exact transition state
-    `irc`          ``list``               The IRC path corresponding to the transition state
-    `output_dir`   ``str``                The path to the output directory
-    `Qclass`       ``class``              A class representing the quantum software
-    `kwargs`       ``dict``               Options for FSM/GSM and quantum calculations
-    `ngrad`        ``int``                The total number of gradient evaluations
-    ============== ====================== =====================================
+    ============== ======================== ===================================
+    Attribute      Type                     Description
+    ============== ======================== ===================================
+    `reactant`     :class:`node.Node`       A node object containing the coordinates and atoms of the reactant molecule
+    `product`      :class:`node.Node`       A node object containing the coordinates and atoms of the product molecule
+    `ts`           :class:`node.Node`       The exact transition state
+    `irc`          ``list``                 The IRC path corresponding to the transition state
+    `fsm`          ``list``                 The FSM path
+    `output_dir`   ``str``                  The path to the output directory
+    `Qclass`       ``class``                A class representing the quantum software
+    `kwargs`       ``dict``                 Options for FSM/GSM and quantum calculations
+    `ngrad`        ``int``                  The total number of gradient evaluations
+    `logger`       :class:`logging.Logger`  The logger
+    ============== ======================== ===================================
 
     """
 
-    def __init__(self, reactant, product, **kwargs):
+    def __init__(self, reactant, product, logname=None, **kwargs):
         if reactant.atoms != product.atoms:
             raise Exception('Atom labels of reactant and product do not match')
         self.reactant = reactant
@@ -95,17 +99,27 @@ class TSSearch(object):
 
         self.ts = None
         self.irc = None
+        self.fsm = None
         self.ngrad = None
+
+        # Set up log file
+        log_level = logging.INFO
+        if logname is None:
+            filename = 'TSSearch.log'
+        else:
+            filename = logname + '.log'
+            self.__name__ = logname
+        self.logger = ard.util.initializeLog(log_level, os.path.join(self.output_dir, filename), logname=logname)
 
     def initialize(self):
         """
         Initialize the TS search job.
         """
-        logging.info('\nTS search initiated on ' + time.asctime() + '\n')
+        self.logger.info('\nTS search initiated on ' + time.asctime() + '\n')
         self.logHeader()
         self.ngrad = 0
 
-    def execute(self, reactant_preopt=False):
+    def execute(self):
         """
         Run the string method, exact transition state search, IRC calculation,
         and check the results. The highest energy node is selected for the
@@ -114,11 +128,11 @@ class TSSearch(object):
         start_time = time.time()
         self.initialize()
         if 'theory_preopt' in self.kwargs:
-            self.preoptimize(reactant=reactant_preopt)
-        sm_path = self.executeStringMethod()
+            self.preoptimizeProduct()
+        self.executeStringMethod()
 
-        energy_max = sm_path[0].energy
-        for node in sm_path[1:-1]:
+        energy_max = self.fsm[0].energy
+        for node in self.fsm[1:-1]:
             if node.energy > energy_max:
                 self.ts = node
                 energy_max = node.energy
@@ -132,60 +146,55 @@ class TSSearch(object):
         """
         Finalize the job.
         """
-        logging.info('\nTS search terminated on ' + time.asctime())
-        logging.info('Total TS search run time: {0:.1f} s'.format(time.time() - start_time))
-        logging.info(
-            'Total number of gradient evaluations (excluding pre-optimization and IRC): {0}'.format(self.ngrad)
+        self.logger.info('\nTS search terminated on ' + time.asctime())
+        self.logger.info('Total TS search run time: {0:.1f} s'.format(time.time() - start_time))
+        self.logger.info(
+            'Total number of gradient evaluations (excluding pre-optimization): {0}'.format(self.ngrad)
         )
 
-    @util.logStartAndFinish
-    def preoptimize(self, reactant=False):
+    @ard.util.logStartAndFinish
+    def preoptimizeProduct(self):
         """
-        Optimize the reactant (if `reactant` is set to `True`) and product
-        geometries.
+        Optimize the product geometry.
         """
         kwargs = self.kwargs.copy()
         kwargs['theory'] = kwargs['theory_preopt']
-
-        if reactant:
-            try:
-                self.reactant.optimizeGeometry(self.Qclass, name='preopt_reac', **kwargs)
-            except QuantumError as e:
-                logging.error('Pre-optimization of reactant structure was unsuccessful')
-                logging.info('Error message: {0}'.format(e))
-            else:
-                logging.info('Optimized reactant structure:\n' + str(self.reactant))
-                logging.info('Energy ({0}) = {1}'.format(kwargs['theory'], self.reactant.energy))
         try:
             self.product.optimizeGeometry(self.Qclass, name='preopt_prod', **kwargs)
         except QuantumError as e:
-            logging.error('Pre-optimization of product structure was unsuccessful')
-            logging.info('Error message: {0}'.format(e))
+            self.logger.error('Pre-optimization of product structure was unsuccessful')
+            self.logger.info('Error message: {0}'.format(e))
         else:
-            logging.info('Optimized product structure:\n' + str(self.product))
-            logging.info('Energy ({0}) = {1}'.format(kwargs['theory'], self.product.energy))
+            self.logger.info('Optimized product structure:\n' + str(self.product))
+            self.logger.info('Energy ({0}) = {1}'.format(kwargs['theory'], self.product.energy))
 
     def executeStringMethod(self):
         """
-        Run the string method with the options specified in `kwargs`. Return
-        the string.
+        Run the string method with the options specified in `kwargs`.
         """
-        fsm = FSM(self.reactant, self.product, **self.kwargs)
-        fsmpath = fsm.execute()
-        self.ngrad += fsm.ngrad
-        return fsmpath
+        fsm = FSM(self.reactant, self.product, logger=self.logger, **self.kwargs)
+        try:
+            self.fsm = fsm.execute()
+        except QuantumError as e:
+            self.logger.error('String method failed and terminated with the message: {0}'.format(e))
+            raise TSError('TS search failed during string method')
 
-    @util.logStartAndFinish
+        self.ngrad += fsm.ngrad
+
+        filepath = os.path.join(self.output_dir, 'FSMpath.png')
+        drawPath(self.fsm, filepath)
+
+    @ard.util.logStartAndFinish
     def executeExactTSSearch(self):
         """
         Run the exact transition state search and update `self.ts`.
         """
-        logging.info('Initial TS structure:\n' + str(self.ts) + '\nEnergy = ' + str(self.ts.energy))
+        self.logger.info('Initial TS structure:\n' + str(self.ts) + '\nEnergy = ' + str(self.ts.energy))
 
         try:
             ngrad = self.ts.optimizeGeometry(self.Qclass, ts=True, name='TSopt', **self.kwargs)
         except QuantumError as e:
-            logging.error('Exact TS search did not succeed and terminated with the message: {0}'.format(e))
+            self.logger.error('Exact TS search did not succeed and terminated with the message: {0}'.format(e))
             raise TSError('TS search failed during exact TS search')
 
         with open(os.path.join(self.output_dir, 'ts.out'), 'w') as f:
@@ -193,20 +202,20 @@ class TSSearch(object):
             f.write('Energy = ' + str(self.ts.energy) + '\n')
             f.write(str(self.ts) + '\n')
 
-        logging.info('Optimized TS structure:\n' + str(self.ts) + '\nEnergy = ' + str(self.ts.energy))
-        logging.info('Number of gradient evaluations during exact TS search: {0}'.format(ngrad))
+        self.logger.info('Optimized TS structure:\n' + str(self.ts) + '\nEnergy = ' + str(self.ts.energy))
+        self.logger.info('Number of gradient evaluations during exact TS search: {0}'.format(ngrad))
         self.ngrad += ngrad
 
-    @util.logStartAndFinish
+    @ard.util.logStartAndFinish
     def executeIRC(self):
         """
         Run an IRC calculation using the exact TS geometry and save the path to
         `self.irc`.
         """
         try:
-            self.irc = self.ts.getIRCpath(self.Qclass, name='IRC', **self.kwargs)
+            self.irc, ngrad = self.ts.getIRCpath(self.Qclass, name='IRC', **self.kwargs)
         except QuantumError as e:
-            logging.error('IRC calculation did not succeed and terminated with the message: {0}'.format(e))
+            self.logger.error('IRC calculation did not succeed and terminated with the message: {0}'.format(e))
             raise TSError('TS search failed during IRC calculation')
 
         with open(os.path.join(self.output_dir, 'irc.out'), 'w') as f:
@@ -215,7 +224,11 @@ class TSSearch(object):
                 f.write('Energy = ' + str(node.energy) + '\n')
                 f.write(str(node) + '\n')
 
-        logging.info('IRC path endpoints:\n' + str(self.irc[0]) + '\n****\n' + str(self.irc[-1]))
+        self.logger.info('IRC path endpoints:\n' + str(self.irc[0]) + '\n****\n' + str(self.irc[-1]))
+        self.ngrad += ngrad
+
+        filepath = os.path.join(self.output_dir, 'IRCpath.png')
+        drawPath(self.irc, filepath)
 
     def checkResults(self):
         """
@@ -223,12 +236,12 @@ class TSSearch(object):
         If they represent the same molecules, then the TS search was
         successful. If not, notify the user to check the results manually.
         """
-        logging.info('\n----------------------------------------------------------------------')
-        logging.info('Begin IRC endpoint check...')
-        reactant = pybel.readstring('xyz', self.reactant.getXYZ())
-        product = pybel.readstring('xyz', self.product.getXYZ())
-        irc_end_1 = pybel.readstring('xyz', self.irc[0].getXYZ())
-        irc_end_2 = pybel.readstring('xyz', self.irc[-1].getXYZ())
+        self.logger.info('\n----------------------------------------------------------------------')
+        self.logger.info('Begin IRC endpoint check...')
+        reactant = self.reactant.toPybelMol()
+        product = self.product.toPybelMol()
+        irc_end_1 = self.irc[0].toPybelMol()
+        irc_end_2 = self.irc[-1].toPybelMol()
         reactant_smi = reactant.write('can').strip()
         product_smi = product.write('can').strip()
         irc_end_1_smi = irc_end_1.write('can').strip()
@@ -241,32 +254,48 @@ class TSSearch(object):
             check2 = True
 
         if check1 and check2:
-            logging.info('IRC check was successful. The IRC path endpoints correspond to the reactant and product.')
+            self.logger.info('IRC check was successful. The IRC path endpoints correspond to the reactant and product.')
         else:
-            logging.warning('IRC check was unsuccessful. Check the results manually.')
-        logging.info('Coordinates converted to SMILES:')
-        logging.info('Reactant: {0}\nProduct: {1}\nIRC endpoint 1: {2}\nIRC endpoint 2: {3}'.
-                     format(reactant_smi, product_smi, irc_end_1_smi, irc_end_2_smi))
-        logging.info('----------------------------------------------------------------------\n')
+            self.logger.warning('IRC check was unsuccessful. Check the results manually.')
+        self.logger.info('Coordinates converted to SMILES:')
+        self.logger.info('Reactant: {0}\nProduct: {1}\nIRC endpoint 1: {2}\nIRC endpoint 2: {3}'.
+                         format(reactant_smi, product_smi, irc_end_1_smi, irc_end_2_smi))
+        self.logger.info('----------------------------------------------------------------------\n')
 
     def logHeader(self):
         """
         Output a log file header containing identifying information about the
         TS search.
         """
-        logging.info('#######################################################################')
-        logging.info('############################## TS SEARCH ##############################')
-        logging.info('#######################################################################')
-        logging.info('Reactant structure:\n' + str(self.reactant))
-        logging.info('Product structure:\n' + str(self.product))
-        logging.info('#######################################################################\n')
+        self.logger.info('#######################################################################')
+        self.logger.info('############################## TS SEARCH ##############################')
+        self.logger.info('#######################################################################')
+        self.logger.info('Reactant structure:\n' + str(self.reactant))
+        self.logger.info('Product structure:\n' + str(self.product))
+        self.logger.info('#######################################################################\n')
+
+###############################################################################
+
+def drawPath(nodepath, filepath):
+    """
+    Make a plot of the path energies, where `nodepath` is a list of
+    :class:`node.Node` objects.
+    """
+    reac_energy = nodepath[0].energy
+    energies = [(node.energy - reac_energy) * 627.5095 for node in nodepath]
+
+    line = plt.plot(energies)
+    plt.setp(line, c='b', ls='-', lw=2.0, marker='.', mec='k', mew=1.0, mfc='w', ms=17.0)
+    plt.ylabel('Energy (kcal/mol)')
+    plt.grid(True)
+    plt.savefig(filepath)
 
 ###############################################################################
 
 if __name__ == '__main__':
     import argparse
 
-    from main import initializeLog, readInput
+    from ard.main import readInput
 
     # Set up parser for reading the input filename from the command line
     parser = argparse.ArgumentParser(description='A transition state search')
@@ -276,24 +305,11 @@ if __name__ == '__main__':
     # Read input file
     input_file = os.path.abspath(args.file)
     options = readInput(input_file)
-    try:
-        reac_preopt = options['reac_preopt']
-    except KeyError:
-        reac_preopt = False
-    else:
-        if reac_preopt.lower() in ('true', '1', 't', 'y', 'yes'):
-            reac_preopt = True
-        else:
-            reac_preopt = False
 
     # Set output directory
     output_dir = os.path.abspath(os.path.dirname(input_file))
     options['output_dir'] = output_dir
 
-    # Initialize the logging system
-    log_level = logging.INFO
-    initializeLog(log_level, os.path.join(output_dir, 'TSSearch.log'))
-
     # Execute job
     tssearch = TSSearch(**options)
-    tssearch.execute(reactant_preopt=reac_preopt)
+    tssearch.execute()

@@ -45,33 +45,10 @@ import numpy as np
 from scipy import optimize
 
 import util
+import constants
 from quantum import Gaussian, NWChem, QChem
 from node import Node
 from interpolation import LST
-
-###############################################################################
-
-def rotationMatrix(angles):
-    """
-    Calculates and returns the rotation matrix defined by three angles of
-    rotation about the x, y, and z axes.
-    """
-    Rx = np.array(
-        [[1.0, 0.0, 0.0],
-         [0.0, np.cos(angles[0]), -np.sin(angles[0])],
-         [0.0, np.sin(angles[0]), np.cos(angles[0])]]
-    )
-    Ry = np.array(
-        [[np.cos(angles[1]), 0.0, np.sin(angles[1])],
-         [0.0, 1.0, 0.0],
-         [-np.sin(angles[1]), 0.0, np.cos(angles[1])]]
-    )
-    Rz = np.array(
-        [[np.cos(angles[2]), -np.sin(angles[2]), 0.0],
-         [np.sin(angles[2]), np.cos(angles[2]), 0.0],
-         [0.0, 0.0, 1.0]]
-    )
-    return Rx.dot(Ry).dot(Rz)
 
 ###############################################################################
 
@@ -80,26 +57,28 @@ class String(object):
     Base class from which freezing and growing string methods can inherit.
     The attributes are:
 
-    ================== ==================== ===================================
-    Attribute          Type                 Description
-    ================== ==================== ===================================
-    `reactant`         :class:`node.Node`   A node object containing the coordinates and atoms of the reactant molecule
-    `product`          :class:`node.Node`   A node object containing the coordinates and atoms of the product molecule
-    `nsteps`           ``int``              The number of gradient evaluations per node optimization
-    `nnode`            ``int``              The desired number of nodes, which determines the spacing between them
-    `tol`              ``float``            The gradient convergence tolerance (Hartree/Angstrom)
-    `nLSTnodes`        ``int``              The number of nodes on a high-density LST interpolation path
-    `Qclass`           ``class``            A class representing the quantum software
-    `nproc`            ``int``              The number of processors available for the string method
-    `output_dir`       ``str``              The path to the output directory
-    `kwargs`           ``dict``             Additional arguments for quantum calculations
-    `node_spacing`     ``float``            The interpolation distance between nodes
-    `ngrad`            ``int``              The total number of gradient evaluations
-    ================== ==================== ===================================
+    =============== ======================== ===================================
+    Attribute       Type                     Description
+    =============== ======================== ===================================
+    `reactant`      :class:`node.Node`       A node object containing the coordinates and atoms of the reactant molecule
+    `product`       :class:`node.Node`       A node object containing the coordinates and atoms of the product molecule
+    `nsteps`        ``int``                  The number of gradient evaluations per node optimization
+    `nnode`         ``int``                  The desired number of nodes, which determines the spacing between them
+    `tol`           ``float``                The gradient convergence tolerance (Hartree/Angstrom)
+    `nLSTnodes`     ``int``                  The number of nodes on a high-density LST interpolation path
+    `Qclass`        ``class``                A class representing the quantum software
+    `nproc`         ``int``                  The number of processors available for the string method
+    `output_dir`    ``str``                  The path to the output directory
+    `kwargs`        ``dict``                 Additional arguments for quantum calculations
+    `node_spacing`  ``float``                The interpolation distance between nodes
+    `ngrad`         ``int``                  The total number of gradient evaluations
+    `logger`        :class:`logging.Logger`  The logger
+    =============== ======================== ===================================
 
     """
 
-    def __init__(self, reactant, product, nsteps=4, nnode=15, tol=0.1, nlstnodes=100, qprog='gau', **kwargs):
+    def __init__(self, reactant, product, logger=None,
+                 nsteps=4, nnode=15, tol=0.1, nlstnodes=100, qprog='gau', **kwargs):
         if reactant.atoms != product.atoms:
             raise Exception('Atom labels of reactant and product do not match')
         self.reactant = reactant
@@ -125,6 +104,13 @@ class String(object):
         self.node_spacing = None
         self.ngrad = None
 
+        # Set up logger
+        if logger is None:
+            log_level = logging.INFO
+            self.logger = util.initializeLog(log_level, os.path.join(self.output_dir, 'String.log'))
+        else:
+            self.logger = logger
+
     def coincidenceObjective(self, angles):
         """
         Defines the objective function for rotating the product structure to
@@ -135,7 +121,7 @@ class String(object):
         corresponds to the angle of rotation about the x-axis, etc.). The objective
         function is a measure of the "distance" between reactant and product.
         """
-        rotated_product = (rotationMatrix(angles).dot(self.product.coordinates.T)).T.flatten()
+        rotated_product = (util.rotationMatrix(angles).dot(self.product.coordinates.T)).T.flatten()
         diff = self.reactant.coordinates.flatten() - rotated_product
         return diff.dot(diff)
 
@@ -156,16 +142,16 @@ class String(object):
         if not result.success:
             message = ('Maximum coincidence alignment terminated with status ' +
                        str(result.status) + ':\n' + result.message + '\n')
-            logging.warning(message)
+            self.logger.warning(message)
 
         # Check for positive eigenvalues to ensure that aligned structure is a minimum
         eig_val = np.linalg.eig(result.hess_inv)[0]
         if not all(eig_val > 0.0):
-            logging.warning('Not all Hessian eigenvalues were positive for the alignment process.\n' +
-                            'The aligned structure may not be optimal.\n')
+            self.logger.warning('Not all Hessian eigenvalues were positive for the alignment process.\n' +
+                                'The aligned structure may not be optimal.\n')
 
         # Rotate product to maximum coincidence
-        self.product.rotate(rotationMatrix(result.x))
+        self.product.rotate(util.rotationMatrix(result.x))
 
     def initialize(self, logHeader):
         """
@@ -178,8 +164,8 @@ class String(object):
         and product nodes, and the second one contains their energies.
         """
         # Log start timestamp
-        logging.info('\n----------------------------------------------------------------------')
-        logging.info('String method initiated on ' + time.asctime() + '\n')
+        self.logger.info('\n----------------------------------------------------------------------')
+        self.logger.info('String method initiated on ' + time.asctime() + '\n')
 
         # Print FSM header
         logHeader()
@@ -187,21 +173,21 @@ class String(object):
         # Find distance between product and reactant nodes and calculate
         # interpolation distance after aligning product and reactant to maximum
         # coincidence
-        logging.info('Aligning product and reactant structure to maximum coincidence')
+        self.logger.info('Aligning product and reactant structure to maximum coincidence')
         self.align()
         arclength = LST(self.reactant, self.product, self.nproc).getTotalArclength(self.nLSTnodes)
         self.node_spacing = arclength / self.nnode
-        logging.info('Aligned reactant structure:\n' + str(self.reactant))
-        logging.info('Aligned product structure:\n' + str(self.product))
-        logging.info('Total reactant to product arc length:   {0:>8.4f} Angstrom'.format(arclength))
-        logging.info('Interpolation arc length for new nodes: {0:>8.4f} Angstrom'.format(self.node_spacing))
+        self.logger.info('Aligned reactant structure:\n' + str(self.reactant))
+        self.logger.info('Aligned product structure:\n' + str(self.product))
+        self.logger.info('Total reactant to product arc length:   {0:>8.4f} Angstrom'.format(arclength))
+        self.logger.info('Interpolation arc length for new nodes: {0:>8.4f} Angstrom'.format(self.node_spacing))
 
         # Initialize path by adding reactant and product structures and computing their energies
-        logging.info('Calculating reactant and product energies')
+        self.logger.info('Calculating reactant and product energies')
         path = [self.reactant, self.product]
         self.reactant.computeEnergy(self.Qclass, name='reac_energy', **self.kwargs)
         self.product.computeEnergy(self.Qclass, name='prod_energy', **self.kwargs)
-        logging.info(
+        self.logger.info(
             'Reactant: {0:.9f} Hartree; Product: {1:.9f} Hartree'.format(self.reactant.energy, self.product.energy)
         )
 
@@ -214,13 +200,13 @@ class String(object):
         """
         Finalize the job.
         """
-        logging.info('Number of gradient evaluations during string method: {0}'.format(self.ngrad))
+        self.logger.info('Number of gradient evaluations during string method: {0}'.format(self.ngrad))
         if success:
-            logging.info('\nString method terminated successfully on ' + time.asctime())
+            self.logger.info('\nString method terminated successfully on ' + time.asctime())
         else:
-            logging.warning('String method terminated abnormally on ' + time.asctime())
-        logging.info('Total string method run time: {0:.1f} s'.format(time.time() - start_time))
-        logging.info('----------------------------------------------------------------------\n')
+            self.logger.warning('String method terminated abnormally on ' + time.asctime())
+        self.logger.info('Total string method run time: {0:.1f} s'.format(time.time() - start_time))
+        self.logger.info('----------------------------------------------------------------------\n')
 
     def writeStringfile(self, path):
         """
@@ -233,6 +219,7 @@ class String(object):
                 f.write('Energy = ' + str(node.energy) + '\n')
                 f.write(str(node) + '\n')
 
+    @util.timeFn
     def getPerpGrad(self, node, tangent, name='grad'):
         """
         Calculate and return a tuple of the perpendicular gradient and its
@@ -240,7 +227,6 @@ class String(object):
         the quantum job to be executed.
         """
         # Calculate gradient and energy
-        start_time = time.time()
         node.computeGradient(self.Qclass, name=name, **self.kwargs)
         logging.debug('Gradient:\n' + str(node.gradient.reshape(len(node.atoms), 3)))
         logging.debug('Energy: ' + str(node.energy))
@@ -365,7 +351,7 @@ class FSM(String):
         # Impose restriction on maximum number of nodes that can be created in
         # case FSM does not converge
         for i in range(2 * self.nnode):
-            logging.info('\nStarting iteration {0}\n'.format(i + 1))
+            self.logger.info('\nStarting iteration {0}\n'.format(i + 1))
 
             # Compute indices for inserting new nodes into FSM path
             innernode_p_idx = len(FSMpath) // 2
@@ -373,38 +359,38 @@ class FSM(String):
 
             # Compute distance between innermost nodes
             distance = FSMpath[innernode_r_idx].getDistance(FSMpath[innernode_p_idx])
-            logging.info('Linear distance between innermost nodes: {0:.4f} Angstrom'.format(distance))
+            self.logger.info('Linear distance between innermost nodes: {0:.4f} Angstrom'.format(distance))
 
             # Obtain interpolated nodes
             nodes, tangents = self.getNodes(FSMpath[innernode_r_idx], FSMpath[innernode_p_idx])
 
             # Return if no new nodes were generated
             if nodes is None:
-                logging.info('No new nodes were generated')
+                self.logger.info('No new nodes were generated')
                 self.finalize(start_time)
                 self.writeStringfile(FSMpath)
                 return FSMpath
 
             # Optimize halfway node if only one was generated and return
             elif isinstance(nodes, Node):
-                logging.info('Added one node:\n' + str(nodes))
+                self.logger.info('Added one node:\n' + str(nodes))
 
                 # Compute distance from reactant and product side innermost nodes
-                logging.info('Linear distance from innermost reactant side node: {0:>8.4f} Angstrom'.
-                             format(nodes.getDistance(FSMpath[innernode_r_idx])))
-                logging.info('Linear distance from innermost product side node:  {0:>8.4f} Angstrom'.
-                             format(nodes.getDistance(FSMpath[innernode_p_idx])))
+                self.logger.info('Linear distance from innermost reactant side node: {0:>8.4f} Angstrom'.
+                                 format(nodes.getDistance(FSMpath[innernode_r_idx])))
+                self.logger.info('Linear distance from innermost product side node:  {0:>8.4f} Angstrom'.
+                                 format(nodes.getDistance(FSMpath[innernode_p_idx])))
 
                 # Perpendicular optimization
-                logging.info('Optimizing final node')
+                self.logger.info('Optimizing final node')
                 logging.debug('Tangent:\n' + str(tangents.reshape(len(nodes.atoms), 3)))
                 self.perpOpt(nodes, tangents, min_desired_energy_change=min_en_change)
-                logging.info('Optimized node:\n' + str(nodes))
-                logging.info('After opt distance from innermost reactant side node: {0:>8.4f} Angstrom'.
-                             format(nodes.getDistance(FSMpath[innernode_r_idx])))
-                logging.info('After opt distance from innermost product side node:  {0:>8.4f} Angstrom'.
-                             format(nodes.getDistance(FSMpath[innernode_p_idx])))
-                logging.info('')
+                self.logger.info('Optimized node:\n' + str(nodes))
+                self.logger.info('After opt distance from innermost reactant side node: {0:>8.4f} Angstrom'.
+                                 format(nodes.getDistance(FSMpath[innernode_r_idx])))
+                self.logger.info('After opt distance from innermost product side node:  {0:>8.4f} Angstrom'.
+                                 format(nodes.getDistance(FSMpath[innernode_p_idx])))
+                self.logger.info('')
 
                 # Insert optimized node and corresponding energy into path
                 FSMpath.insert(innernode_p_idx, nodes)
@@ -415,27 +401,31 @@ class FSM(String):
 
             # Optimize new nodes
             else:
-                logging.info('Added two nodes:\n' + str(nodes[0]) + '\n****\n' + str(nodes[1]))
+                self.logger.info('Added two nodes:\n' + str(nodes[0]) + '\n****\n' + str(nodes[1]))
 
                 # Compute distance from reactant and product side innermost nodes
-                logging.info('Linear distance between previous and current reactant side nodes: {0:>8.4f} Angstrom'.
-                             format(nodes[0].getDistance(FSMpath[innernode_r_idx])))
-                logging.info('Linear distance between previous and current product side nodes:  {0:>8.4f} Angstrom'.
-                             format(nodes[1].getDistance(FSMpath[innernode_p_idx])))
+                self.logger.info('Linear distance between previous and current reactant side nodes: {0:>8.4f} Angstrom'.
+                                 format(nodes[0].getDistance(FSMpath[innernode_r_idx])))
+                self.logger.info('Linear distance between previous and current product side nodes:  {0:>8.4f} Angstrom'.
+                                 format(nodes[1].getDistance(FSMpath[innernode_p_idx])))
 
                 # Perpendicular optimization
-                logging.info('Optimizing new reactant side node')
+                self.logger.info('Optimizing new reactant side node')
                 logging.debug('Tangent:\n' + str(tangents[0].reshape(len(nodes[0].atoms), 3)))
                 self.perpOpt(nodes[0], tangents[0], nodes[1], min_en_change)
-                logging.info('Optimizing new product side node')
+                self.logger.info('Optimizing new product side node')
                 logging.debug('Tangent:\n' + str(tangents[1].reshape(len(nodes[1].atoms), 3)))
                 self.perpOpt(nodes[1], tangents[1], nodes[0], min_en_change)
-                logging.info('Optimized nodes:\n' + str(nodes[0]) + '\n****\n' + str(nodes[1]))
-                logging.info('After opt distance between previous and current reactant side nodes: {0:>8.4f} Angstrom'.
-                             format(nodes[0].getDistance(FSMpath[innernode_r_idx])))
-                logging.info('After opt distance between previous and current product side nodes:  {0:>8.4f} Angstrom'.
-                             format(nodes[1].getDistance(FSMpath[innernode_p_idx])))
-                logging.info('')
+                self.logger.info('Optimized nodes:\n' + str(nodes[0]) + '\n****\n' + str(nodes[1]))
+                self.logger.info(
+                    'After opt distance between previous and current reactant side nodes: {0:>8.4f} Angstrom'.
+                    format(nodes[0].getDistance(FSMpath[innernode_r_idx]))
+                )
+                self.logger.info(
+                    'After opt distance between previous and current product side nodes:  {0:>8.4f} Angstrom'.
+                    format(nodes[1].getDistance(FSMpath[innernode_p_idx]))
+                )
+                self.logger.info('')
 
                 # Insert optimized nodes and corresponding energies into path
                 FSMpath.insert(innernode_p_idx, nodes[1])
@@ -475,7 +465,7 @@ class FSM(String):
         hess_inv = np.copy(identity_mat)
 
         # Convert units to Hartree
-        min_desired_energy_change /= 627.5095
+        min_desired_energy_change /= constants.hartree_to_kcal_per_mol
 
         # Calculate perpendicular gradient and set node energy
         perp_grad, perp_grad_mag = self.getPerpGrad(node, tangent, name='grad0')
@@ -498,7 +488,7 @@ class FSM(String):
             if scale_factor < 0.0:
                 # Terminate if resetting Hessian did not resolve instability
                 if unstable:
-                    logging.warning('Optimization terminated prematurely due to unstable scaling factor')
+                    self.logger.warning('Optimization terminated prematurely due to unstable scaling factor')
                     break
                 unstable = True
                 np.copyto(hess_inv, identity_mat)
@@ -528,24 +518,24 @@ class FSM(String):
             if k > 1:
                 energy_change = node.energy - energy_old
                 if energy_change > 0.0:
-                    logging.info('Optimization terminated due to energy increase')
+                    self.logger.info('Optimization terminated due to energy increase')
                     node.displaceCoordinates(-step.reshape(len(node.atoms), 3))
                     node.energy = energy_old
                     break
                 if abs(energy_change) < 0.5 / 627.5095:
-                    logging.info('Optimization terminated due to small energy change')
+                    self.logger.info('Optimization terminated due to small energy change')
                     break
             if k == self.nsteps:
-                logging.info('Optimization terminated because maximum number of steps was reached')
+                self.logger.info('Optimization terminated because maximum number of steps was reached')
                 break
             if perp_grad_mag < self.tol:
-                logging.info('Perpendicular gradient convergence criterion satisfied')
+                self.logger.info('Perpendicular gradient convergence criterion satisfied')
                 break
             if abs(perp_grad.dot(search_dir)) <= - self.lsf * perp_grad_old.dot(search_dir):
-                logging.info('Optimization terminated due to stable line search condition')
+                self.logger.info('Optimization terminated due to stable line search condition')
                 break
             if node.getDistance(other_node) > max_distance:
-                logging.warning('Optimization terminated because maximum distance between nodes was exceeded')
+                self.logger.warning('Optimization terminated because maximum distance between nodes was exceeded')
                 break
 
             # Update inverse Hessian
@@ -561,18 +551,19 @@ class FSM(String):
         Output a log file header containing identifying information about the
         FSM job.
         """
-        logging.info('######################################################################')
-        logging.info('####################### FREEZING STRING METHOD #######################')
-        logging.info('######################################################################')
-        logging.info('# Number of gradient calculations per optimization step:     {0:>5}   #'.format(self.nsteps))
-        logging.info('# Number of nodes for calculation of interpolation distance: {0:>5}   #'.format(self.nnode))
-        logging.info('# Line search factor during Newton-Raphson optimization:     {0:>5.2f}   #'.format(self.lsf))
-        logging.info('# Gradient convergence tolerance (Hartree/Angstrom):         {0:>5.2f}   #'.format(self.tol))
-        logging.info('# Number of high density LST nodes:                          {0:>5}   #'.format(self.nLSTnodes))
-        logging.info('######################################################################')
-        logging.info('Reactant structure:\n' + str(self.reactant))
-        logging.info('Product structure:\n' + str(self.product))
-        logging.info('######################################################################\n')
+        self.logger.info('######################################################################')
+        self.logger.info('####################### FREEZING STRING METHOD #######################')
+        self.logger.info('######################################################################')
+        self.logger.info('# Number of gradient calculations per optimization step:     {0:>5}   #'.format(self.nsteps))
+        self.logger.info('# Number of nodes for calculation of interpolation distance: {0:>5}   #'.format(self.nnode))
+        self.logger.info('# Line search factor during Newton-Raphson optimization:     {0:>5.2f}   #'.format(self.lsf))
+        self.logger.info('# Gradient convergence tolerance (Hartree/Angstrom):         {0:>5.2f}   #'.format(self.tol))
+        self.logger.info('# Number of high density LST nodes:                          {0:>5}   #'.
+                         format(self.nLSTnodes))
+        self.logger.info('######################################################################')
+        self.logger.info('Reactant structure:\n' + str(self.reactant))
+        self.logger.info('Product structure:\n' + str(self.product))
+        self.logger.info('######################################################################\n')
 
 ###############################################################################
 
@@ -644,12 +635,12 @@ class GSM(String):
     #     """
     #     Finalize the GSM job.
     #     """
-    #     logging.info('Total number of gradient evaluations: {0}'.format(self.ngrad))
+    #     self.logger.info('Total number of gradient evaluations: {0}'.format(self.ngrad))
     #     if success:
-    #         logging.info('\nGSM job terminated successfully on ' + time.asctime())
+    #         self.logger.info('\nGSM job terminated successfully on ' + time.asctime())
     #     else:
-    #         logging.error('\nGSM job terminated abnormally on ' + time.asctime())
-    #     logging.info('Total run time: {0:.1f} s\n'.format(time.time() - start_time))
+    #         self.logger.error('\nGSM job terminated abnormally on ' + time.asctime())
+    #     self.logger.info('Total run time: {0:.1f} s\n'.format(time.time() - start_time))
     #
     # def perpOpt(self, node, tangent, nsteps=3, other_node=None, min_desired_energy_change=2.5, line_search_factor=0.7,
     #             frontier_node=False):
@@ -709,7 +700,7 @@ class GSM(String):
     #         if scale_factor < 0.0:
     #             # Terminate if resetting Hessian did not resolve instability
     #             if unstable:
-    #                 logging.warning('Optimization terminated prematurely due to unstable scaling factor')
+    #                 self.logger.warning('Optimization terminated prematurely due to unstable scaling factor')
     #                 break
     #             unstable = True
     #             np.copyto(hess_inv, identity_mat)
@@ -739,21 +730,21 @@ class GSM(String):
     #         if k > 1:
     #             energy_change = energy - energy_old
     #             if energy_change > 0.0:
-    #                 logging.info('Optimization terminated due to energy increase')
+    #                 self.logger.info('Optimization terminated due to energy increase')
     #                 return energy_old
     #             if abs(energy_change) < 0.5 / 627.5095:
-    #                 logging.info('Optimization terminated due to small energy change')
+    #                 self.logger.info('Optimization terminated due to small energy change')
     #                 return energy
     #         if k == self.nsteps:
     #             return energy
     #         if perp_grad_mag < self.tol:
-    #             logging.info('Perpendicular gradient convergence criterion satisfied')
+    #             self.logger.info('Perpendicular gradient convergence criterion satisfied')
     #             return energy
     #         if abs(perp_grad.dot(search_dir)) <= - self.lsf * perp_grad_old.dot(search_dir):
-    #             logging.info('Optimization terminated due to stable line search condition')
+    #             self.logger.info('Optimization terminated due to stable line search condition')
     #             return energy
     #         if node.getDistance(other_node) > max_distance:
-    #             logging.warning('Optimization terminated because maximum distance between nodes was exceeded')
+    #             self.logger.warning('Optimization terminated because maximum distance between nodes was exceeded')
     #             return energy
     #
     #         # Update inverse Hessian
@@ -793,7 +784,7 @@ class GSM(String):
 if __name__ == '__main__':
     import argparse
 
-    from main import initializeLog, readInput
+    from main import readInput
 
     # Set up parser for reading the input filename from the command line
     parser = argparse.ArgumentParser(description='A freezing/growing string method transition state search')
@@ -809,13 +800,7 @@ if __name__ == '__main__':
     output_dir = os.path.abspath(os.path.dirname(input_file))
     options['output_dir'] = output_dir
 
-    # Initialize the logging system
-    log_level = logging.INFO
-    initializeLog(log_level, os.path.join(output_dir, jobtype + '.log'))
-
     # Execute job
     if jobtype == 'fsm':
         fsm = FSM(**options)
         fsm.execute()
-    else:
-        logging.error('Job could not be executed. Check the job type.')
