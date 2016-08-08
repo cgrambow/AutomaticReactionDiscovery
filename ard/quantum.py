@@ -431,7 +431,7 @@ class QChem(Quantum):
         corresponding energies in Hartrees.
         """
         for line in self.output:
-            if 'Reaction path following' in line:
+            if 'starting direction =' in line:
                 break
         else:
             raise QuantumError('Q-Chem output does not contain IRC calculation')
@@ -543,7 +543,7 @@ class QChem(Quantum):
 
         # Run job
         self.logfile = os.path.join(output_dir, name + '.log')
-        self.submitProcessAndCheck('qchem', '-np', nproc, self.input_file, self.logfile)
+        self.submitProcessAndCheck('qchem', '-np', 1, '-nt', nproc, self.input_file, self.logfile)
         os.remove(os.path.join(output_dir, 'pathtable'))
 
         # Read output

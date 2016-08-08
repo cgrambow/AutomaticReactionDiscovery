@@ -156,7 +156,7 @@ class ARD(object):
                 kwargs['logname'] = 'rxn' + rxn_num
 
                 product = mol.toNode()
-                self.logger.info('Reaction {}:\n{}\n{}\n'.format(rxn, mol.write().strip(), product))
+                self.logger.info('Reaction {}:\n{}\n{}\n'.format(rxn, mol.write('can').strip(), product))
 
                 self.makeInputFile(product, **kwargs)
                 job_script = makeBatchSubmissionScript(rxn_name, example_script_path, output_dir)
