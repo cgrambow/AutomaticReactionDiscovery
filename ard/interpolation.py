@@ -39,9 +39,6 @@ so that these can be serialized for map functions of parallelization packages.
 
 from __future__ import division
 
-import copy_reg
-import multiprocessing
-import types
 import warnings
 
 import numpy as np
@@ -49,33 +46,6 @@ from scipy import optimize
 
 import util
 from node import Node
-
-###############################################################################
-
-def _pickle_method(method):
-    """
-    Pickles method.
-    """
-    func_name = method.im_func.__name__
-    obj = method.im_self
-    cls = method.im_class
-    return _unpickle_method, (func_name, obj, cls)
-
-def _unpickle_method(func_name, obj, cls):
-    """
-    Unpickles method.
-    """
-    for cls in cls.mro():
-        try:
-            func = cls.__dict__[func_name]
-        except KeyError:
-            pass
-        else:
-            break
-    return func.__get__(obj, cls)
-
-# Add functionality for pickling bound methods
-copy_reg.pickle(types.MethodType, _pickle_method, _unpickle_method)
 
 ###############################################################################
 
@@ -191,11 +161,7 @@ class LST(CartesianInterp):
         inc = 1.0 / (nnodes - 1)
 
         # Compute LST path and add start and end node to path
-        if self.nproc > 1:
-            pool = multiprocessing.Pool(self.nproc)
-            path = list(pool.map(self.getLSTnode, np.linspace(inc, 1.0 - inc, nnodes - 2)))
-        else:
-            path = [self.getLSTnode(f) for f in np.linspace(inc, 1.0 - inc, nnodes - 2)]
+        path = [self.getLSTnode(f) for f in np.linspace(inc, 1.0 - inc, nnodes - 2)]
         path.insert(0, self.node_start)
         path.append(self.node_end)
 

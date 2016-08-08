@@ -153,6 +153,7 @@ class TSSearch(object):
         )
 
     @ard.util.logStartAndFinish
+    @ard.util.timeFn
     def preoptimizeProduct(self):
         """
         Optimize the product geometry.
@@ -185,6 +186,7 @@ class TSSearch(object):
         drawPath(self.fsm, filepath)
 
     @ard.util.logStartAndFinish
+    @ard.util.timeFn
     def executeExactTSSearch(self):
         """
         Run the exact transition state search and update `self.ts`.
@@ -207,6 +209,7 @@ class TSSearch(object):
         self.ngrad += ngrad
 
     @ard.util.logStartAndFinish
+    @ard.util.timeFn
     def executeIRC(self):
         """
         Run an IRC calculation using the exact TS geometry and save the path to
@@ -284,8 +287,10 @@ def drawPath(nodepath, filepath):
     reac_energy = nodepath[0].energy
     energies = [(node.energy - reac_energy) * 627.5095 for node in nodepath]
 
+    plt.figure()
     line = plt.plot(energies)
     plt.setp(line, c='b', ls='-', lw=2.0, marker='.', mec='k', mew=1.0, mfc='w', ms=17.0)
+    plt.xlabel('Node')
     plt.ylabel('Energy (kcal/mol)')
     plt.grid(True)
     plt.savefig(filepath)
