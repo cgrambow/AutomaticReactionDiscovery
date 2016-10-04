@@ -33,8 +33,10 @@ Contains the :class:`Generate` for generating product structures.
 """
 
 import pybel
+from rmgpy.molecule import Molecule
 
 import props
+import gen3D
 
 ###############################################################################
 
@@ -61,8 +63,7 @@ class Generate(object):
     =============== ========================== ================================
 
     Note: Bonds are represented as
-          (beginAtomIdx, endAtomIdx, bondOrder, stereoFlag)
-          where `stereoFlag` indicates a possible cis/trans stereo center
+          (beginAtomIdx, endAtomIdx, bondOrder)
     """
 
     def __init__(self, reac_mol):
@@ -81,7 +82,7 @@ class Generate(object):
         self.reac_smi = self.reac_mol.write('can').strip()
         self.atoms = tuple(atom.atomicnum for atom in self.reac_mol)
 
-    def generateProducts(self, nbreak=0, nform=0):
+    def generateProducts(self, nbreak=3, nform=3):
         """
         Generate all possible products from the reactant under the constraints
         of breaking a maximum of `nbreak` and forming a maximum of `nform`
@@ -124,11 +125,19 @@ class Generate(object):
 
         # Convert all products to Molecule objects and append to list of product molecules
         if products_bonds:
+            reac_rmg_mol = Molecule().fromSMILES(self.reac_smi)
             for bonds in products_bonds:
-                mol = self.reac_mol.copyWithNewBonds(bonds)
+                mol = gen3D.makeMolFromAtomsAndBonds(self.atoms, bonds, spin=self.reac_mol.spin)
+                mol.setCoordsFromMol(self.reac_mol)
 
                 # Only append if product molecule is not the same as reactant
-                if mol.write('can').strip() != self.reac_smi:
+                # prod_smi = mol.write('smi').strip()
+                prod_smi = mol.write('can').strip()
+                if prod_smi == 'O.C.[OH]':
+                    print 'hi'
+
+                prod_rmg_mol = Molecule().fromSMILES(prod_smi)
+                if not prod_rmg_mol.isIsomorphic(reac_rmg_mol):
                     self.prod_mols.append(mol)
 
     def _generateProductsHelper(self, nbreak, nform, products, bonds, valences, bonds_form_all, bonds_broken=None):

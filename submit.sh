@@ -1,13 +1,13 @@
 #!/bin/bash -l
 #SBATCH -p regular
 #SBATCH -N 1
-#SBATCH -t 03:00:00
+#SBATCH -t 02:00:00
 #SBATCH -J NAME
 #SBATCH -o NAME.o%j
 
 # Load modules if not already available
 module load python/2.7-anaconda
-module load g09
+module load g09/d1
 
 # This should point to the path where `ard.py` and `tssearch.py` are located
 ARD=/global/homes/c/cgrambow/Code/AutomaticReactionDiscovery/

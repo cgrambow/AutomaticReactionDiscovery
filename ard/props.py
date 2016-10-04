@@ -42,7 +42,7 @@ atomnum_inv = dict((v, k) for k, v in atomnum.iteritems())
 atomweights = {1: 1.007975, 6: 12.0106, 7: 14.006855, 8: 15.9994, 9: 18.9984031636, 14: 28.085, 15: 30.9737619985,
                16: 32.0675, 17: 35.4515, 35: 79.904}
 
-# Valence electrons of neutral species
+# Valence electrons of neutral atoms
 valenceelec = {1: 1, 6: 4, 7: 5, 8: 6, 9: 7, 14: 4, 15: 5, 16: 6, 17: 7, 35: 7}
 
 # Maximum valences of atoms

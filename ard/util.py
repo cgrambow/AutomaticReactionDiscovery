@@ -39,10 +39,11 @@ from functools import wraps
 import logging
 import os
 import shutil
-import subprocess
 import time
 
 import numpy as np
+
+from quantum import Gaussian, QChem, NWChem
 
 ###############################################################################
 
@@ -109,14 +110,6 @@ class Copier(object):
         args = self.args + var_args
         return self.fn(*args, **self.kwargs)
 
-def submitProcess(cmd, *args):
-    """
-    Submit a process with the command, `cmd`, and arguments, `args`.
-    """
-    args = [str(arg) for arg in args]
-    full_cmd = [cmd] + args
-    subprocess.check_call(full_cmd)
-
 def makeOutputSubdirectory(output_dir, folder):
     """
     Create a subdirectory `folder` in the output directory. If the folder
@@ -147,10 +140,25 @@ def logStartAndFinish(fn):
         args[0].logger.info('\n----------------------------------------------------------------------')
         args[0].logger.info('{} initiated on {}\n'.format(fn.__name__, time.asctime()))
         result = fn(*args, **kwargs)
-        args[0].logger.info('\n{} terminated on {}'.format(fn.__name__, time.asctime()))
+        args[0].logger.info('{} terminated on {}'.format(fn.__name__, time.asctime()))
         args[0].logger.info('----------------------------------------------------------------------\n')
         return result
     return fnWrappedWithLog
+
+def assignQclass(qprog):
+    """
+    Choose the appropriate quantum class based on the `qprog` string.
+    """
+    if qprog == 'gau':
+        Qclass = Gaussian
+    elif qprog == 'qchem':
+        Qclass = QChem
+    elif qprog == 'nwchem':
+        Qclass = NWChem
+    else:
+        raise Exception('Invalid quantum software')
+
+    return Qclass
 
 def findClosest(a, x):
     """

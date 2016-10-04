@@ -42,7 +42,6 @@ import sys
 
 import numpy as np
 
-import util
 import constants
 import props
 
@@ -56,19 +55,32 @@ class QuantumError(Exception):
 
 ###############################################################################
 
+def submitProcess(cmd, *args):
+    """
+    Submit a process with the command, `cmd`, and arguments, `args`.
+    """
+    args = [str(arg) for arg in args]
+    full_cmd = [cmd] + args
+    subprocess.check_call(full_cmd)
+
+###############################################################################
+
 class Quantum(object):
     """
     Base class from which other quantum software classes can inherit.
 
     The attribute `input_file` represents the path where the input file for the
     quantum job is located, the attribute `logfile` represents the path where
-    the log file containing the results is located and the attribute `output`
-    contains the output of the calculation in a list.
+    the log file containing the results is located, the attribute `chkfile`
+    represents the path where a checkpoint file for reading from a previous job
+    is located, and the attribute `output` contains the output of the
+    calculation in a list.
     """
 
-    def __init__(self, input_file=None, logfile=None):
+    def __init__(self, input_file=None, logfile=None, chkfile=None):
         self.input_file = input_file
         self.logfile = logfile
+        self.chkfile = chkfile
         if logfile is not None:
             self.read()
         else:
@@ -87,24 +99,35 @@ class Quantum(object):
         """
         try:
             os.remove(self.input_file)
-        except OSError:
+        except (OSError, TypeError):
             pass
 
         try:
             os.remove(self.logfile)
-        except OSError:
+        except (OSError, TypeError):
             pass
 
         self.input_file = None
         self.logfile = None
         self.output = None
 
+    def clearChkfile(self):
+        """
+        Deletes the checkpoint file and clears the associated attribute.
+        """
+        try:
+            os.remove(self.chkfile)
+        except (OSError, TypeError):
+            pass
+
+        self.chkfile = None
+
     def submitProcessAndCheck(self, cmd, *args):
         """
         Submits a quantum calculation and checks if errors occurred.
         """
         try:
-            util.submitProcess(cmd, *args)
+            submitProcess(cmd, *args)
         except subprocess.CalledProcessError:
             if os.path.isfile(self.logfile):
                 msg = 'Quantum job terminated with an error'
@@ -131,8 +154,8 @@ class Gaussian(Quantum):
     jobs.
     """
 
-    def __init__(self, input_file=None, logfile=None):
-        super(Gaussian, self).__init__(input_file=input_file, logfile=logfile)
+    def __init__(self, input_file=None, logfile=None, chkfile=None):
+        super(Gaussian, self).__init__(input_file=input_file, logfile=logfile, chkfile=chkfile)
 
     def getNumAtoms(self):
         """
@@ -205,7 +228,7 @@ class Gaussian(Quantum):
         """
         Extract and return IRC path from Gaussian job. Results are returned as
         a list of tuples of N x 3 coordinate arrays in units of Angstrom and
-        corresponding energies in Hartrees.
+        corresponding energies in Hartrees. Path does not include TS geometry.
         """
         for line in self.output:
             if 'IRC-IRC' in line:
@@ -215,34 +238,30 @@ class Gaussian(Quantum):
 
         natoms = self.getNumAtoms()
 
-        # Read forward IRC path
-        forwardpath = []
+        # Read IRC path (does not include corrector steps of last point if there was an error termination)
+        path = []
         for line_num, line in enumerate(self.output):
             if 'Input orientation' in line:
                 coord_mat = self._formatArray(self.output[line_num + 5:line_num + 5 + natoms])
             elif 'SCF Done' in line:
                 energy = float(line.split()[4])
-                forwardpath.append((coord_mat, energy))
-            elif 'FORWARD' in line:
-                break
-        else:
-            raise QuantumError('Forward IRC path could not be found in Gaussian output')
+            elif 'CHANGE IN THE REACTION COORDINATE' in line:
+                path.append((coord_mat, energy))
 
-        # Read reverse IRC path
-        reversepath = []
-        energy = None
-        for line_num, line in enumerate(reversed(self.output)):
-            if 'SCF Done' in line:
-                energy = float(line.split()[4])
-            if 'Input orientation' in line and energy is not None:
-                coord_mat = self._formatArray(self.output[-(line_num - 4):-(line_num - 4 - natoms)])
-                reversepath.append((coord_mat, energy))
-            elif 'FORWARD' in line:
-                break
-        else:
-            raise QuantumError('Reverse IRC path could not be found in Gaussian output')
+        if not path:
+            raise QuantumError('IRC path is too short')
+        return path
 
-        return reversepath + forwardpath
+    def getNumImaginaryFrequencies(self):
+        """
+        Extract and return the number of imaginary frequencies from a Gaussian
+        job.
+        """
+        for line in self.output:
+            if 'imaginary frequencies' in line:
+                nimag = int(line.split()[1])
+                return nimag
+        raise QuantumError('Frequencies could not be found in Gaussian output')
 
     def getNumGrad(self):
         """
@@ -255,8 +274,8 @@ class Gaussian(Quantum):
                 ngrad += 1
         return ngrad
 
-    def makeInputFile(self, node, name='gau', jobtype='force', output_dir='',
-                      theory='m062x/cc-pvtz', nproc=32, mem='2000mb', **kwargs):
+    def makeInputFile(self, node, name='gau', jobtype='force', direction='forward', output_dir='',
+                      theory='m062x/cc-pvtz', nproc=1, mem='2000mb', **kwargs):
         """
         Create Gaussian input file.
         """
@@ -271,27 +290,46 @@ class Gaussian(Quantum):
             jobtype = 'ts'
         elif jobtype == 'rpath' or jobtype == 'mepgs':
             jobtype = 'irc'
+        if jobtype not in ('sp', 'opt', 'force', 'freq', 'ts', 'irc'):
+            raise Exception('Invalid job type')
 
         # Join memory string if there is a space between the number and unit
         match = re.match(r"([0-9]+) ([a-z]+)", mem, re.I)
         if match:
             mem = ''.join(match.groups())
 
+        # Add dispersion for PM6
+        if theory == 'pm6':
+            dispersion = 'EmpiricalDispersion=gd3'
+        else:
+            dispersion = ''
+
         # Create Gaussian input file
         try:
             input_file = os.path.join(output_dir, name + '.com')
             with open(input_file, 'w') as f:
+                fc = 'calcfc'
+                if self.chkfile is not None:
+                    f.write('%chk=' + self.chkfile + '\n')
+                    fc = 'rcfc'
                 f.write('%mem=' + mem + '\n')
                 f.write('%nprocshared=' + str(int(nproc)) + '\n')
                 if jobtype == 'opt':
-                    f.write('# opt=(maxcycles=100) ' + theory + '\n\n')
+                    f.write('# opt=(maxcycles=100) {} {} nosymm test\n\n'.format(theory, dispersion))
                 elif jobtype == 'ts':
-                    f.write('# opt=(ts,noeigen,calcfc,maxcycles=100) ' + theory + '\n\n')
+                    f.write('# opt=(ts,noeigen,{},maxcycles=100) {} {} nosymm test\n\n'.format(fc, theory, dispersion))
                 elif jobtype == 'irc':
-                    f.write('# irc=(calcfc,maxpoints=50,stepsize=8) ' + theory +
-                            ' iop(1/7=300) \n\n')
+                    if direction == 1:
+                        direction = 'forward'
+                    elif direction == -1:
+                        direction = 'reverse'
+                    if direction not in ('forward', 'reverse'):
+                        raise Exception('Invalid IRC direction')
+                    f.write('# irc=({},{},maxpoints=60,stepsize=8,maxcycle=20) {} {} iop(1/7=300) nosymm test\n\n'.
+                            format(direction, fc, theory, dispersion))
+
                 else:
-                    f.write('# ' + jobtype + ' ' + theory + '\n\n')
+                    f.write('# {} {} {} nosymm test\n\n'.format(jobtype, theory, dispersion))
                 f.write(name + '\n\n')
                 f.write('0 ' + str(node.multiplicity) + '\n')
 
@@ -338,8 +376,8 @@ class QChem(Quantum):
     Class for reading data from Q-Chem log files and for executing Q-Chem jobs.
     """
 
-    def __init__(self, input_file=None, logfile=None):
-        super(QChem, self).__init__(input_file=input_file, logfile=logfile)
+    def __init__(self, input_file=None, logfile=None, chkfile=None):
+        super(QChem, self).__init__(input_file=input_file, logfile=logfile, chkfile=chkfile)
 
     def getNumAtoms(self):
         """
@@ -428,7 +466,7 @@ class QChem(Quantum):
         """
         Extract and return IRC path from Q-Chem job. Results are returned as a
         list of tuples of N x 3 coordinate arrays in units of Angstrom and
-        corresponding energies in Hartrees.
+        corresponding energies in Hartrees. Path does not include TS geometry
         """
         for line in self.output:
             if 'starting direction =' in line:
@@ -438,24 +476,19 @@ class QChem(Quantum):
 
         natoms = self.getNumAtoms()
 
-        # Read IRC paths
-        forwardpath, reversepath = [], []
-        read_forward = True
+        # Read IRC path
+        path = []
         for line_num, line in enumerate(self.output):
             if 'Standard Nuclear Orientation' in line:
                 coord_mat = self._formatArray(self.output[line_num + 3:line_num + 3 + natoms])
             elif 'Total energy' in line:
                 energy = float(line.split()[8])
             elif 'Reaction path following' in line:
-                if read_forward:
-                    forwardpath.append((coord_mat, energy))
-                else:
-                    reversepath.append((coord_mat, energy))
-            elif 'starting direction = -1' in line:
-                read_forward = False
+                path.append((coord_mat, energy))
 
-        del reversepath[0]
-        return reversepath[::-1] + forwardpath
+        if len(path) == 1:
+            raise QuantumError('IRC path is too short')
+        return path[1:]
 
     def getNumGrad(self):
         """
@@ -468,7 +501,8 @@ class QChem(Quantum):
                 ngrad += 1
         return ngrad
 
-    def makeInputFile(self, node, name='qc', jobtype='force', output_dir='', theory='m062x/cc-pvtz', **kwargs):
+    def makeInputFile(self, node, name='qc', jobtype='force', direction=1, output_dir='',
+                      theory='m062x/cc-pvtz', **kwargs):
         """
         Create Q-Chem input file.
         """
@@ -483,6 +517,11 @@ class QChem(Quantum):
             jobtype = 'ts'
         elif jobtype == 'irc' or jobtype == 'mepgs':
             jobtype = 'rpath'
+        if jobtype not in ('sp', 'opt', 'force', 'freq', 'ts', 'rpath'):
+            raise Exception('Invalid job type')
+
+        if theory == 'pm6':
+            raise QuantumError('PM6 level of theory is not available in Q-Chem')
 
         # Split theory and basis into separate strings
         method, basis = theory.lower().split('/')
@@ -500,7 +539,7 @@ class QChem(Quantum):
                 f.write(str(node) + '\n')
                 f.write('$end\n')
 
-                if jobtype == 'rpath':
+                if jobtype == 'ts':
                     f.write('$rem\n')
                     f.write('jobtype freq\n')
                     f.write('basis ' + basis + '\n')
@@ -517,9 +556,22 @@ class QChem(Quantum):
                 f.write('method ' + method + '\n')
                 f.write('sym_ignore true\n')  # Have to disable symmetry to obtain input orientation
 
-                if jobtype == 'rpath':
+                if jobtype == 'opt':
+                    f.write('geom_opt_max_cycles 100\n')
+                elif jobtype == 'ts':
+                    f.write('geom_opt_max_cycles 100\n')
                     f.write('scf_guess read\n')
-                    f.write('rpath_max_cycles 50\n')
+                    f.write('geom_opt_hessian read\n')
+                elif jobtype == 'rpath':
+                    if direction == 'forward':
+                        direction = 1
+                    elif direction == 'reverse':
+                        direction = -1
+                    if direction not in (1, -1):
+                        raise Exception('Invalid IRC direction')
+                    f.write('rpath_direction ' + str(direction) + '\n')
+                    f.write('scf_guess read\n')
+                    f.write('rpath_max_cycles 60\n')
                     f.write('rpath_max_stepsize 80\n')
 
                 f.write('$end\n')
@@ -529,7 +581,7 @@ class QChem(Quantum):
 
         self.input_file = input_file
 
-    def executeJob(self, node, name='qc', output_dir='', nproc=32, **kwargs):
+    def executeJob(self, node, name='qc', output_dir='', nproc=1, **kwargs):
         """
         Execute quantum job type using the Q-Chem software package. This method
         can only be run on a UNIX system where Q-Chem is installed. Requires
@@ -543,7 +595,7 @@ class QChem(Quantum):
 
         # Run job
         self.logfile = os.path.join(output_dir, name + '.log')
-        self.submitProcessAndCheck('qchem', '-np', 1, '-nt', nproc, self.input_file, self.logfile)
+        self.submitProcessAndCheck('qchem', '-np', 1, '-nt', nproc, self.input_file, self.logfile, 'save')
         os.remove(os.path.join(output_dir, 'pathtable'))
 
         # Read output
@@ -556,8 +608,8 @@ class NWChem(Quantum):
     Class for reading data from NWChem log files and for executing NWChem jobs.
     """
 
-    def __init__(self, input_file=None, logfile=None):
-        super(NWChem, self).__init__(input_file=input_file, logfile=logfile)
+    def __init__(self, input_file=None, logfile=None, chkfile=None):
+        super(NWChem, self).__init__(input_file=input_file, logfile=logfile, chkfile=chkfile)
 
     def getNumAtoms(self):
         """
@@ -767,7 +819,7 @@ class NWChem(Quantum):
 
         self.input_file = input_file
 
-    def executeJob(self, node, name='nwc', output_dir='', nproc=32, **kwargs):
+    def executeJob(self, node, name='nwc', output_dir='', nproc=1, **kwargs):
         """
         Execute quantum job type using the NWChem software package. This method
         can only be run on a UNIX system where NWChem is installed. Requires

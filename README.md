@@ -34,7 +34,7 @@ The possible arguments are:
 * `nbreak`         - Maximum number of bonds that may be broken
 * `nform`          - Maximum number of bonds that may be formed
 * `dH_cutoff`      - Heat of reaction cutoff (kcal/mol)
-* `forcefield`     - Force field for 3D geometry generation
+* `forcefield`     - Force field for 3D geometry generation (`mmff94` or `uff`)
 * `distance`       - Initial distance between molecules
 * `method`         - FSM or GSM (currently only FSM is supported)
 * `geometry`       - Reactant and product geometry (see `main.py` for details)
@@ -50,8 +50,24 @@ The possible arguments are:
 * `mem`            - Memory requirements for quantum software
 
 Only `reac_smi` has to be specified for a full automatic discovery, all other
-arguments have default values or are set by running `ard.py`. `job_cmd` defaults
-to `qsub`.
+arguments have default values or are set by running `ard.py`.
+Default values are:
+* `job_cmd` = `qsub`
+* `nbreak` = 3
+* `nform` = 3
+* `dH_cutoff` = 20
+* `forcefield` = mmff94
+* `distance` = 3.5
+* `method` = fsm
+* `nsteps` = 4
+* `nnode` = 15
+* `lsf` = 0.7
+* `tol` = 0.1
+* `nLSTnodes` = 100
+* `qprog` = gau
+* `theory` = m062x/cc-pvtz
+* `nproc` = 1
+* `mem` = 2000mb
 
 The input file arguments can be specified in any order and comments can be
 added. An example is given in _input.txt_. If a freezing string method or

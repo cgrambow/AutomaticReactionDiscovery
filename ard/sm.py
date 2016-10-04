@@ -46,7 +46,6 @@ from scipy import optimize
 
 import util
 import constants
-from quantum import Gaussian, NWChem, QChem
 from node import Node
 from interpolation import LST
 
@@ -88,16 +87,8 @@ class String(object):
         self.tol = float(tol)
         self.nLSTnodes = int(nlstnodes)
 
-        if qprog == 'gau':
-            self.Qclass = Gaussian
-        elif qprog == 'nwchem':
-            self.Qclass = NWChem
-        elif qprog == 'qchem':
-            self.Qclass = QChem
-        else:
-            raise Exception('Invalid quantum software')
-
-        self.nproc = int(kwargs.get('nproc', 8))
+        self.Qclass = util.assignQclass(qprog)
+        self.nproc = int(kwargs.get('nproc', 1))
         self.output_dir = kwargs.get('output_dir', '')
         self.kwargs = kwargs
 
@@ -185,7 +176,8 @@ class String(object):
         # Initialize path by adding reactant and product structures and computing their energies
         self.logger.info('Calculating reactant and product energies')
         path = [self.reactant, self.product]
-        self.reactant.computeEnergy(self.Qclass, name='reac_energy', **self.kwargs)
+        if self.reactant.energy is None:
+            self.reactant.computeEnergy(self.Qclass, name='reac_energy', **self.kwargs)
         self.product.computeEnergy(self.Qclass, name='prod_energy', **self.kwargs)
         self.logger.info(
             'Reactant: {0:.9f} Hartree; Product: {1:.9f} Hartree'.format(self.reactant.energy, self.product.energy)

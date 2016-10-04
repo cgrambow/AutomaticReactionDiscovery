@@ -1,5 +1,5 @@
-job_cmd           qsub              # Command for job submission
-reac_smi          OOCCC=O           # Reactant SMILES
+job_cmd           sbatch            # Command for job submission
+reac_smi          CO[O]             # Reactant SMILES
 nbreak            3                 # Maximum number of bonds to be broken
 nform             3                 # Maximum number of bonds to be formed
 dH_cutoff         20                # Heat of reaction cutoff
@@ -11,5 +11,5 @@ lsf               0.7               # Line search factor
 tol               0.05              # Perpendicular gradient tolerance
 nLSTnodes         100               # Number of nodes for LST interpolation
 qprog             gau               # Program for quantum calculations
-theory            m062x/6-311++g**  # Level of theory for quantum calculations
+theory            m062x/cc-pvtz     # Level of theory for quantum calculations
 nproc             32                # Number of processors per job

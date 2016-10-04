@@ -40,11 +40,14 @@ import math
 import os
 
 import pybel
-
-from node import Node
 from rmgpy import settings
 from rmgpy.species import Species
 from rmgpy.data.thermo import ThermoDatabase
+
+import constants
+import props
+from node import Node
+from quantum import QuantumError
 
 ###############################################################################
 
@@ -62,6 +65,27 @@ def make3DandOpt(mol, forcefield='mmff94', make3D=True):
     if make3D:
         mol.make3D(forcefield=forcefield)
     mol.localopt(forcefield=forcefield)
+
+def makeMolFromAtomsAndBonds(atoms, bonds, spin=None):
+    """
+    Create a new Molecule object from a sequence of atoms and bonds.
+    """
+    mol = Molecule(pybel.ob.OBMol())
+    OBMol = mol.OBMol
+
+    for atomicnum in atoms:
+        a = pybel.ob.OBAtom()
+        a.SetAtomicNum(atomicnum)
+        OBMol.AddAtom(a)
+    for bond in bonds:
+        OBMol.AddBond(bond[0] + 1, bond[1] + 1, bond[2])
+
+    mol.assignSpinMultiplicity()
+    if spin is not None:
+        OBMol.SetTotalSpinMultiplicity(spin)
+    OBMol.SetHydrogensAdded()
+
+    return mol
 
 # def genConformers(mol, forcefield='mmff94', nconf_max=3, steps=1000):
 #     """
@@ -83,7 +107,7 @@ def setLowestEnergyConformer(mol, forcefield='mmff94', steps=2000):
     ff = pybel.ob.OBForceField.FindForceField(forcefield)
     numrots = mol.OBMol.NumRotors()
     if numrots > 0:
-        ff.WeightedRotorSearch(numrots + 1, int(math.log(numrots + 1) * steps))
+        ff.WeightedRotorSearch(numrots + 2, int(math.log(numrots + 1) * steps))
         ff.GetCoordinates(mol.OBMol)
 
 ###############################################################################
@@ -98,6 +122,7 @@ class Molecule(pybel.Molecule):
     Attribute       Type                     Description
     =============== ======================== ==================================
     `OBMol`         :class:`pybel.ob.OBMol`  An Open Babel molecule object
+    `label`         ``str``                  A label for the molecule
     `mols`          ``list``                 A list of :class:`Molecule` molecules contained in `self`
     `mols_indices`  ``list``                 Tuple of lists containing indices of atoms in the molecules
     =============== ======================== ==================================
@@ -118,33 +143,18 @@ class Molecule(pybel.Molecule):
         """
         # Create new empty instance
         m = Molecule(pybel.ob.OBMol())
+        OBMol = m.OBMol
 
         for atom in self:
-            m.OBMol.AddAtom(atom.OBAtom)
+            OBMol.AddAtom(atom.OBAtom)
         for bond in pybel.ob.OBMolBondIter(self.OBMol):
-            m.OBMol.AddBond(bond)
+            OBMol.AddBond(bond)
 
-        m.OBMol.SetTotalSpinMultiplicity(self.spin)
-        m.OBMol.SetHydrogensAdded()
-        return m
+        OBMol.SetTotalSpinMultiplicity(self.spin)
+        OBMol.SetHydrogensAdded()
 
-    def copyWithNewBonds(self, bonds):
-        """
-        Create copy of atoms in `self` and connect them using the bonds
-        specified in `bonds`. Multiplicities on atoms are assigned assuming
-        that hydrogens are specified explicitly.
-        """
-        # Create new empty instance
-        m = Molecule(pybel.ob.OBMol())
-
-        for atom in self:
-            m.OBMol.AddAtom(atom.OBAtom)
-        for bond in bonds:
-            m.OBMol.AddBond(bond[0] + 1, bond[1] + 1, bond[2])
-
-        m.assignSpinMultiplicity()
-        m.OBMol.SetTotalSpinMultiplicity(self.spin)
-        m.OBMol.SetHydrogensAdded()
+        m.mols_indices = self.mols_indices
+        m.mols = self.mols
         return m
 
     def toNode(self):
@@ -156,14 +166,20 @@ class Molecule(pybel.Molecule):
         for atom in self:
             atoms.append(atom.atomicnum)
             coords.append(atom.coords)
-        return Node(coords, atoms, self.spin)
+        node = Node(coords, atoms, self.spin)
+        node.energy = self.energy
+        return node
 
     def toRMGSpecies(self):
         """
         Convert to :class:`rmgpy.species.Species` object and return the object.
         """
-        smiles = self.write().strip()
-        spc = Species().fromSMILES(smiles)
+        smiles = self.write().strip()  # MAKE ADJLIST RATHER THAN SMILES CAUSE SMILES MIGHT BE WRONG
+        if smiles == '[C]':  # Elemental carbon is converted incorrectly by RMG
+            adjlist = 'multiplicity 3\n1 C u2 p1 c0'  # Use triplet carbon because it is lower in energy
+            spc = Species().fromAdjacencyList(adjlist)
+        else:
+            spc = Species().fromSMILES(smiles)
         spc.label = smiles
         return spc
 
@@ -173,12 +189,36 @@ class Molecule(pybel.Molecule):
         function assumes that all hydrogens are specified explicitly.
         """
         self.OBMol.SetSpinMultiplicityAssigned()
+        num_diff = 0  # Number of times that a multiplicity greater than 1 occurs
+        maxspin = 1
 
         for atom in self:
-            diff = atom.OBAtom.GetImplicitValence() - (atom.OBAtom.GetHvyValence() +
-                                                       atom.OBAtom.ExplicitHydrogenCount())
+            OBAtom = atom.OBAtom
+            # Only based on difference between expected and actual valence
+            nonbond_elec = props.valenceelec[atom.atomicnum] - OBAtom.BOSum()
+
+            # Tries to pair all electrons that are not involved in bonds, which means that singlet states are favored
+            diff = nonbond_elec % 2
+
             if diff:
-                atom.OBAtom.SetSpinMultiplicity(diff + 1)
+                num_diff += 1
+                spin = diff + 1
+                if spin > maxspin:
+                    maxspin = spin
+                OBAtom.SetSpinMultiplicity(spin)
+
+        # Try to infer total spin multiplicity based on atom spins (assuming that spins in diradicals and higher are
+        # opposite and favor the singlet state)
+        if num_diff % 2 != 0:
+            self.OBMol.SetTotalSpinMultiplicity(maxspin)
+        else:
+            self.OBMol.SetTotalSpinMultiplicity(1)
+
+    def AssignSpinMultiplicity(self):
+        """
+        Override method in parent class.
+        """
+        self.assignSpinMultiplicity()
 
     def getH298(self, thermo_db=None):
         """
@@ -198,10 +238,81 @@ class Molecule(pybel.Molecule):
         for mol in self.mols:
             spc = mol.toRMGSpecies()
             spc.thermo = thermo_db.getThermoData(spc)
-            H298 += spc.thermo.H298.value_si / 4184
+            H298 += spc.thermo.H298.value_si / constants.kcal_to_J
 
         # Return combined enthalpy of all molecules
         return H298
+
+    def setCoordsFromMol(self, other):
+        """
+        Set the coordinates for each atom in the current molecule from the
+        atoms in another one.
+        """
+        if len(self.atoms) != len(other.atoms):
+            raise Exception('Number of atoms must match')
+
+        for atom, other_atom in zip(self, other):
+            coord_vec = other_atom.OBAtom.GetVector()
+            atom.OBAtom.SetVector(coord_vec)
+
+    def isCarbeneOrNitrene(self):
+        """
+        Return a boolean indicating whether or not the molecule is a carbene or
+        a nitrene.
+        """
+        for atom in self:
+            OBAtom = atom.OBAtom
+
+            if OBAtom.IsCarbon() and OBAtom.BOSum() == 2:
+                return True
+            if OBAtom.IsNitrogen() and OBAtom.BOSum() == 1:
+                return True
+
+        return False
+
+    def optimizeGeometry(self, Qclass, **kwargs):
+        """
+        Perform a geometry optimization of each molecule in self using an
+        electronic structure program specified in `Qclass` and a subsequent
+        frequency calculation with the parameters specified in `kwargs`. Update
+        the coordinates and energy, and return the number of gradient
+        evaluations.
+        """
+        self.separateMol()
+
+        if len(self.mols) > 1:
+            ngrad = 0
+            energy = 0.0
+            name_base = kwargs.get('name', 'opt')
+            err = False
+
+            for i, mol in enumerate(self.mols):
+                kwargs['name'] = name_base + str(i)
+                node = mol.toNode()
+
+                try:
+                    ngrad += node.optimizeGeometry(Qclass, **kwargs)
+                except QuantumError as e:
+                    err, msg = True, e
+
+                energy += node.energy
+                mol_opt = node.toPybelMol()
+                mol.setCoordsFromMol(mol_opt)
+
+                self.mergeMols()
+
+            # Raise error even if only one of the optimizations failed
+            if err:
+                raise QuantumError(msg)
+        else:
+            node = self.toNode()
+            ngrad = node.optimizeGeometry(Qclass, **kwargs)
+            energy = node.energy
+            mol_opt = node.toPybelMol()
+            self.setCoordsFromMol(mol_opt)
+
+        self.OBMol.SetEnergy(energy)
+        return ngrad
 
     def gen3D(self, forcefield='mmff94', d=3.5, make3D=True):
         """
@@ -247,6 +358,7 @@ class Molecule(pybel.Molecule):
                     for atom in del_atoms:
                         mol.OBMol.DeleteAtom(atom)
 
+                    mol.assignSpinMultiplicity()  # Has to be set again because
                     mol.OBMol.SetHydrogensAdded()
                     self.mols.append(mol)
             else:
@@ -259,7 +371,11 @@ class Molecule(pybel.Molecule):
         `self.mols_indices`.
         """
         if self.mols is not None:
+            spin = self.spin
             self.OBMol.Clear()
+
+            if self.mols_indices is None:
+                self.connectivityAnalysis()
 
             # Loop through molecules and append atoms and bonds in order
             natoms = 0
@@ -278,7 +394,9 @@ class Molecule(pybel.Molecule):
             for i, atom_idx in enumerate(mols_indices_new):
                 neworder[atom_idx] = i + 1
             self.OBMol.RenumberAtoms(neworder)
+
             self.OBMol.SetHydrogensAdded()
+            self.OBMol.SetTotalSpinMultiplicity(spin)
 
     def connectivityAnalysis(self):
         """
