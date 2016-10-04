@@ -35,14 +35,17 @@ using FSM/GSM.
 
 import logging
 import os
+import shutil
 import time
 
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-import ard.util
-from ard.quantum import Gaussian, NWChem, QChem, QuantumError
+import ard.constants as constants
+import ard.util as util
+from ard.node import Node
+from ard.quantum import QuantumError
 from ard.sm import FSM
 
 ###############################################################################
@@ -87,14 +90,7 @@ class TSSearch(object):
 
         self.output_dir = kwargs.get('output_dir', '')
         qprog = kwargs.get('qprog', 'gau')
-        if qprog == 'gau':
-            self.Qclass = Gaussian
-        elif qprog == 'nwchem':
-            self.Qclass = NWChem
-        elif qprog == 'qchem':
-            self.Qclass = QChem
-        else:
-            raise Exception('Invalid quantum software')
+        self.Qclass = util.assignQclass(qprog)
         self.kwargs = kwargs
 
         self.ts = None
@@ -109,7 +105,7 @@ class TSSearch(object):
         else:
             filename = logname + '.log'
             self.__name__ = logname
-        self.logger = ard.util.initializeLog(log_level, os.path.join(self.output_dir, filename), logname=logname)
+        self.logger = util.initializeLog(log_level, os.path.join(self.output_dir, filename), logname=logname)
 
     def initialize(self):
         """
@@ -138,22 +134,26 @@ class TSSearch(object):
                 energy_max = node.energy
 
         self.executeExactTSSearch()
-        self.executeIRC()
-        self.checkResults()
+        chkfile = os.path.join(self.output_dir, 'chkf.chk')
+        self.computeFrequencies(chkfile)
+        self.executeIRC(chkfile)
         self.finalize(start_time)
 
     def finalize(self, start_time):
         """
         Finalize the job.
         """
+        barrier = (self.ts.energy - self.reactant.energy) * constants.hartree_to_kcal_per_mol
+        self.logger.info('\nBarrier height = {:.2f} kcal/mol'.format(barrier))
+
         self.logger.info('\nTS search terminated on ' + time.asctime())
-        self.logger.info('Total TS search run time: {0:.1f} s'.format(time.time() - start_time))
+        self.logger.info('Total TS search run time: {:.1f} s'.format(time.time() - start_time))
         self.logger.info(
-            'Total number of gradient evaluations (excluding pre-optimization): {0}'.format(self.ngrad)
+            'Total number of gradient evaluations (excluding pre-optimization): {}'.format(self.ngrad)
         )
 
-    @ard.util.logStartAndFinish
-    @ard.util.timeFn
+    @util.logStartAndFinish
+    @util.timeFn
     def preoptimizeProduct(self):
         """
         Optimize the product geometry.
@@ -163,11 +163,11 @@ class TSSearch(object):
         try:
             self.product.optimizeGeometry(self.Qclass, name='preopt_prod', **kwargs)
         except QuantumError as e:
-            self.logger.error('Pre-optimization of product structure was unsuccessful')
-            self.logger.info('Error message: {0}'.format(e))
+            self.logger.warning('Pre-optimization of product structure was unsuccessful')
+            self.logger.info('Error message: {}'.format(e))
         else:
             self.logger.info('Optimized product structure:\n' + str(self.product))
-            self.logger.info('Energy ({0}) = {1}'.format(kwargs['theory'], self.product.energy))
+            self.logger.info('Energy ({}) = {}'.format(kwargs['theory'], self.product.energy))
 
     def executeStringMethod(self):
         """
@@ -177,7 +177,7 @@ class TSSearch(object):
         try:
             self.fsm = fsm.execute()
         except QuantumError as e:
-            self.logger.error('String method failed and terminated with the message: {0}'.format(e))
+            self.logger.error('String method failed and terminated with the message: {}'.format(e))
             raise TSError('TS search failed during string method')
 
         self.ngrad += fsm.ngrad
@@ -185,8 +185,8 @@ class TSSearch(object):
         filepath = os.path.join(self.output_dir, 'FSMpath.png')
         drawPath(self.fsm, filepath)
 
-    @ard.util.logStartAndFinish
-    @ard.util.timeFn
+    @util.logStartAndFinish
+    @util.timeFn
     def executeExactTSSearch(self):
         """
         Run the exact transition state search and update `self.ts`.
@@ -196,7 +196,7 @@ class TSSearch(object):
         try:
             ngrad = self.ts.optimizeGeometry(self.Qclass, ts=True, name='TSopt', **self.kwargs)
         except QuantumError as e:
-            self.logger.error('Exact TS search did not succeed and terminated with the message: {0}'.format(e))
+            self.logger.error('Exact TS search did not succeed and terminated with the message: {}'.format(e))
             raise TSError('TS search failed during exact TS search')
 
         with open(os.path.join(self.output_dir, 'ts.out'), 'w') as f:
@@ -205,21 +205,74 @@ class TSSearch(object):
             f.write(str(self.ts) + '\n')
 
         self.logger.info('Optimized TS structure:\n' + str(self.ts) + '\nEnergy = ' + str(self.ts.energy))
-        self.logger.info('Number of gradient evaluations during exact TS search: {0}'.format(ngrad))
+        self.logger.info('\nNumber of gradient evaluations during exact TS search: {}\n'.format(ngrad))
         self.ngrad += ngrad
 
-    @ard.util.logStartAndFinish
-    @ard.util.timeFn
-    def executeIRC(self):
+    @util.logStartAndFinish
+    @util.timeFn
+    def computeFrequencies(self, chkfile):
+        """
+        Run a frequency calculation using the exact TS geometry.
+        """
+        try:
+            nimag, ngrad = self.ts.computeFrequencies(self.Qclass, name='freq', chkfile=chkfile, **self.kwargs)
+        except QuantumError as e:
+            self.logger.error('Frequency calculation did not succeed and terminated with the message: {}'.format(e))
+            raise TSError('TS search failed during frequency calculation')
+
+        if nimag != 1:
+            self.logger.error('Number of imaginary frequencies is different than 1. Geometry is not a TS!')
+            raise TSError('TS search failed due to wrong number of imaginary frequencies')
+
+        self.logger.info('Number of gradient evaluations during frequency calculation: {}\n'.format(ngrad))
+        self.ngrad += ngrad
+
+    @util.logStartAndFinish
+    @util.timeFn
+    def executeIRC(self, chkfile):
         """
         Run an IRC calculation using the exact TS geometry and save the path to
         `self.irc`.
         """
-        try:
-            self.irc, ngrad = self.ts.getIRCpath(self.Qclass, name='IRC', **self.kwargs)
-        except QuantumError as e:
-            self.logger.error('IRC calculation did not succeed and terminated with the message: {0}'.format(e))
-            raise TSError('TS search failed during IRC calculation')
+        chkf_name, chkf_ext = os.path.splitext(chkfile)
+        chkfile_copy = chkf_name + '_copy' + chkf_ext
+        shutil.copyfile(chkfile, chkfile_copy)
+        forward_path, forward_ngrad = self._runOneDirectionalIRC('IRC_forward', 'forward', chkfile)
+        reverse_path, reverse_ngrad = self._runOneDirectionalIRC('IRC_reverse', 'reverse', chkfile_copy)
+        ngrad = forward_ngrad + reverse_ngrad
+
+        # Check if endpoints correspond to reactant and product
+        # and try to orient IRC path so that it runs from reactant to product
+        self.logger.info('Begin IRC endpoint check...')
+        reactant_smi = self.reactant.toSMILES()
+        product_smi = self.product.toSMILES()
+        irc_end_1_smi = forward_path[-1].toSMILES()
+        irc_end_2_smi = reverse_path[-1].toSMILES()
+
+        check1, check2 = False, False
+        if reactant_smi == irc_end_1_smi:
+            self.irc = forward_path[::-1] + [self.ts] + reverse_path
+            check1 = 1
+        elif reactant_smi == irc_end_2_smi:
+            self.irc = reverse_path[::-1] + [self.ts] + forward_path
+            check1 = 2
+        else:
+            self.irc = forward_path[::-1] + [self.ts] + reverse_path
+        if product_smi == irc_end_1_smi or product_smi == irc_end_2_smi:
+            check2 = True
+
+        if check1 and check2:
+            self.logger.info('IRC check was successful. The IRC path endpoints correspond to the reactant and product.')
+        else:
+            self.logger.warning('IRC check was unsuccessful. IRC path may correspond to a different reaction.')
+            self.logger.warning('Check the results manually.')
+
+        self.logger.info('Coordinates converted to SMILES:')
+        endpoint_order = [irc_end_1_smi, irc_end_2_smi]
+        if check1 == 2:
+            endpoint_order = [irc_end_2_smi, irc_end_1_smi]
+        self.logger.info('Reactant: {0}\nProduct: {1}\nIRC endpoint 1: {2[0]}\nIRC endpoint 2: {2[1]}'.
+                         format(reactant_smi, product_smi, endpoint_order))
 
         with open(os.path.join(self.output_dir, 'irc.out'), 'w') as f:
             for node_num, node in enumerate(self.irc):
@@ -227,43 +280,44 @@ class TSSearch(object):
                 f.write('Energy = ' + str(node.energy) + '\n')
                 f.write(str(node) + '\n')
 
-        self.logger.info('IRC path endpoints:\n' + str(self.irc[0]) + '\n****\n' + str(self.irc[-1]))
+        self.logger.info('IRC path endpoints:\n' + str(self.irc[0]) + '\n****\n' + str(self.irc[-1]) + '\n')
+        self.logger.info('\nNumber of gradient evaluations during IRC calculation: {}\n'.format(ngrad))
         self.ngrad += ngrad
 
         filepath = os.path.join(self.output_dir, 'IRCpath.png')
         drawPath(self.irc, filepath)
 
-    def checkResults(self):
+    @util.timeFn
+    def _runOneDirectionalIRC(self, name, direction, chkfile):
         """
-        Compare the IRC path endpoints to the reactant and product structures.
-        If they represent the same molecules, then the TS search was
-        successful. If not, notify the user to check the results manually.
+        Run an IRC calculation in the forward or reverse direction and return
+        the path together with the number of gradient evaluations. The results
+        are returned even if an error was raised during the calculation.
         """
-        self.logger.info('\n----------------------------------------------------------------------')
-        self.logger.info('Begin IRC endpoint check...')
-        reactant = self.reactant.toPybelMol()
-        product = self.product.toPybelMol()
-        irc_end_1 = self.irc[0].toPybelMol()
-        irc_end_2 = self.irc[-1].toPybelMol()
-        reactant_smi = reactant.write('can').strip()
-        product_smi = product.write('can').strip()
-        irc_end_1_smi = irc_end_1.write('can').strip()
-        irc_end_2_smi = irc_end_2.write('can').strip()
+        try:
+            ircpath, ngrad = self.ts.getIRCpath(
+                self.Qclass, name=name, direction=direction, freq=False, chkfile=chkfile, **self.kwargs
+            )
+        except QuantumError as e:
+            self.logger.warning(
+                '{} IRC calculation did not run to completion and terminated with the message: {}'.format(direction, e)
+            )
 
-        check1, check2 = False, False
-        if reactant_smi == irc_end_1_smi or reactant_smi == irc_end_2_smi:
-            check1 = True
-        if product_smi == irc_end_1_smi or product_smi == irc_end_2_smi:
-            check2 = True
+            q = self.Qclass(logfile=os.path.join(self.output_dir, name + '.log'))
+            try:
+                path = q.getIRCpath()
+                ngrad = q.getNumGrad()
+            except QuantumError as e:
+                raise TSError('TS search failed reading IRC logfile: {}'.format(e))
 
-        if check1 and check2:
-            self.logger.info('IRC check was successful. The IRC path endpoints correspond to the reactant and product.')
-        else:
-            self.logger.warning('IRC check was unsuccessful. Check the results manually.')
-        self.logger.info('Coordinates converted to SMILES:')
-        self.logger.info('Reactant: {0}\nProduct: {1}\nIRC endpoint 1: {2}\nIRC endpoint 2: {3}'.
-                         format(reactant_smi, product_smi, irc_end_1_smi, irc_end_2_smi))
-        self.logger.info('----------------------------------------------------------------------\n')
+            q.clearChkfile()
+            ircpath = []
+            for element in path:
+                node = Node(element[0], self.reactant.atoms, self.reactant.multiplicity)
+                node.energy = element[1]
+                ircpath.append(node)
+
+        return ircpath, ngrad
 
     def logHeader(self):
         """
@@ -286,9 +340,10 @@ def drawPath(nodepath, filepath):
     """
     reac_energy = nodepath[0].energy
     energies = [(node.energy - reac_energy) * 627.5095 for node in nodepath]
+    n = range(1, len(energies) + 1)
 
     plt.figure()
-    line = plt.plot(energies)
+    line = plt.plot(n, energies)
     plt.setp(line, c='b', ls='-', lw=2.0, marker='.', mec='k', mew=1.0, mfc='w', ms=17.0)
     plt.xlabel('Node')
     plt.ylabel('Energy (kcal/mol)')

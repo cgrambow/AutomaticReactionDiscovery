@@ -116,7 +116,60 @@ class Node(object):
         Convert node to a :class:`pybel.Molecule` object.
         """
         mol = pybel.readstring('xyz', self.getXYZ())
+        mol.OBMol.SetTotalSpinMultiplicity(self.multiplicity)
+        if self.energy is not None:
+            mol.OBMol.SetEnergy(self.energy)
         return mol
+
+    def toSMILES(self):
+        """
+        Return a SMILES representation of the node.
+        """
+        mol = self.toPybelMol()
+        smiles = mol.write('can').strip()
+        return smiles
+
+    def toBEMat(self):
+        """
+        Return a bond and electron matrix (as a :class:`numpy.ndarray`)
+        containing bonding information about the node.
+
+        Note: The diagonal values are not populated.
+        """
+        natoms = len(self.atoms)
+        BEmat = np.zeros((natoms, natoms))
+
+        mol = self.toPybelMol()
+        for bond in pybel.ob.OBMolBondIter(mol.OBMol):
+            bond_tup = (bond.GetBeginAtomIdx() - 1, bond.GetEndAtomIdx() - 1, bond.GetBondOrder())
+
+            BEmat[bond_tup[0], bond_tup[1]] = bond_tup[2]
+            BEmat[bond_tup[1], bond_tup[0]] = bond_tup[2]
+
+        # Detect hydrogen molecules separately, since Openbabel often does not create a bond for these
+        Hatoms = []
+        for atom in mol:
+            if atom.atomicnum == 1 and atom.OBAtom.BOSum() == 0:
+                Hatoms.append(atom)
+
+        if len(Hatoms) > 1:
+            potential_Hmols = [[Hatom1, Hatom2]
+                               for (idx1, Hatom1) in enumerate(Hatoms[:-1])
+                               for Hatom2 in Hatoms[idx1 + 1:]]
+
+            for potential_Hmol in potential_Hmols:
+                coords1 = np.array(potential_Hmol[0].coords)
+                coords2 = np.array(potential_Hmol[1].coords)
+
+                distance = np.linalg.norm(coords1 - coords2)
+
+                if distance <= 0.78:
+                    idx1 = potential_Hmol[0].idx - 1
+                    idx2 = potential_Hmol[1].idx - 1
+                    BEmat[idx1, idx2] = 1
+                    BEmat[idx2, idx1] = 1
+
+        return BEmat
 
     def getTotalMass(self, atoms=None):
         """
@@ -192,14 +245,27 @@ class Node(object):
         self.gradient = q.getGradient()
         q.clear()
 
-    def optimizeGeometry(self, Qclass, ts=False, **kwargs):
+    def computeFrequencies(self, Qclass, chkfile=None, **kwargs):
+        """
+        Compute force constants and frequencies of the node using the quantum
+        program specified in `Qclass` with the options in `kwargs`. The number
+        of imaginary frequencies and of gradient evaluations is returned.
+        """
+        q = Qclass(chkfile=chkfile)
+        q.executeJob(self, jobtype='freq', **kwargs)
+        nimag = q.getNumImaginaryFrequencies()
+        ngrad = q.getNumGrad()
+
+        return nimag, ngrad
+
+    def optimizeGeometry(self, Qclass, ts=False, chkfile=None, **kwargs):
         """
         Perform a geometry optimization of the node using the quantum program
         specified in `Qclass` with the options in `kwargs`. If `ts` is True, a
         transition state search will be run. The node coordinates, gradient,
         and energy are updated. The number of gradient evaluations is returned.
         """
-        q = Qclass()
+        q = Qclass(chkfile=chkfile)
         if ts:
             q.executeJob(self, jobtype='ts', **kwargs)
         else:
@@ -208,22 +274,31 @@ class Node(object):
         self.gradient = q.getGradient()
         self.coordinates = q.getGeometry()
         ngrad = q.getNumGrad()
-        q.clear()
+        q.clearChkfile()
 
         return ngrad
 
-    def getIRCpath(self, Qclass, **kwargs):
+    def getIRCpath(self, Qclass, direction='forward', freq=True, chkfile=None, **kwargs):
         """
-        Execute an IRC path calculation assuming that the current node geometry
-        corresponds to a transition state. A list of :class:`node.Node` objects
-        (with coordinates and energies) representing the nodes along the IRC
-        path, and the number of gradient evaluations are returned.
+        Execute an IRC path calculation in the given direction assuming that
+        the current node geometry corresponds to a transition state. A list of
+        :class:`node.Node` objects (with coordinates and energies) representing
+        the nodes along the IRC path, and the number of gradient evaluations
+        are returned. The transition state node is included in the IRC path.
+
+        Note: If `freq` is set to False, a frequency calculation has to have
+        been completed previously.
         """
-        q = Qclass()
-        q.executeJob(self, jobtype='irc', **kwargs)
+        if freq:
+            if chkfile is None:
+                chkfile = 'chkf.chk'
+            self.computeFrequencies(Qclass, name='freq', chkfile=chkfile, **kwargs)
+
+        q = Qclass(chkfile=chkfile)
+        q.executeJob(self, jobtype='irc', direction=direction, **kwargs)
         path = q.getIRCpath()
         ngrad = q.getNumGrad()
-        q.clear()
+        q.clearChkfile()
 
         nodepath = []
         for element in path:

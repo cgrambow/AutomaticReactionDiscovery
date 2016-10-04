@@ -42,11 +42,13 @@ import os
 import stat
 import time
 
+import pybel
 from rmgpy import settings
 from rmgpy.data.thermo import ThermoDatabase
 
 import gen3D
 import util
+from quantum import QuantumError
 from node import Node
 from pgen import Generate
 
@@ -69,6 +71,7 @@ class ARD(object):
     `dh_cutoff`     ``float``                Heat of reaction cutoff (kcal/mol) for reactions that are too endothermic
     `forcefield`    ``str``                  The force field for 3D geometry generation
     `distance`      ``float``                The initial distance between molecules
+    `Qclass`        ``class``                A class representing the quantum software
     `output_dir`    ``str``                  The path to the output directory
     `logger`        :class:`logging.Logger`  The main logger
     =============== ======================== ==================================
@@ -83,6 +86,8 @@ class ARD(object):
         self.dh_cutoff = float(dh_cutoff)
         self.forcefield = forcefield
         self.distance = float(distance)
+        qprog = kwargs.get('qprog', 'gau')
+        self.Qclass = util.assignQclass(qprog)
         self.output_dir = output_dir
         self.reactant = None
         log_level = logging.INFO
@@ -95,6 +100,7 @@ class ARD(object):
         """
         self.logger.info('\nARD initiated on ' + time.asctime() + '\n')
         reac_mol = self.generateReactant3D()
+        self.reac_smi = reac_mol.write('can')
         self.logHeader()
         return reac_mol
 
@@ -110,20 +116,55 @@ class ARD(object):
         self.reactant = reac_mol.toNode()
         return reac_mol
 
+    def preopt(self, mol, **kwargs):
+        """
+        Optimize `mol` at the PM6 level of theory and return the PM6 energy.
+        The optimization is done separately for each molecule in the structure.
+        If the optimization was unsuccessful, `None` is returned.
+        """
+        kwargs_copy = kwargs.copy()
+        kwargs_copy['theory'] = 'pm6'
+
+        try:
+            mol.optimizeGeometry(self.Qclass, name='preopt', **kwargs_copy)
+        except QuantumError:
+            return None
+
+        return mol.energy
+
+    @util.logStartAndFinish
+    @util.timeFn
+    def optimizeReactant(self, reac_mol, **kwargs):
+        """
+        Optimize reactant geometry and set reactant energy. The optimization is
+        done separately for each molecule in the reactant structure.
+        """
+        try:
+            ngrad = reac_mol.optimizeGeometry(self.Qclass, name='reac_opt', **kwargs)
+        except QuantumError as e:
+            self.logger.warning('Optimization of reactant structure was unsuccessful')
+            self.logger.info('Error message: {}'.format(e))
+            self.logger.info('Proceeding with force field geometry')
+        else:
+            self.reactant = reac_mol.toNode()
+            self.logger.info('Optimized reactant structure:\n' + str(self.reactant))
+            self.logger.info('Energy ({}) = {}'.format(kwargs['theory'], self.reactant.energy))
+            self.logger.info('\nNumber of gradient evaluations during reactant optimization: {}\n'.format(ngrad))
+
     def execute(self, **kwargs):
         """
         Execute the automatic reaction discovery procedure.
         """
-        # Initialize job
         start_time = time.time()
         reac_mol = self.initialize()
+        PM6_energy_reac = self.preopt(reac_mol, **kwargs)
+        self.optimizeReactant(reac_mol, **kwargs)
 
-        # Generate products
         gen = Generate(reac_mol)
         gen.generateProducts(nbreak=self.nbreak, nform=self.nform)
         prod_mols = gen.prod_mols
 
-        # Load thermo database
+        # Load thermo database and choose which libraries to search
         thermo_db = ThermoDatabase()
         thermo_db.load(os.path.join(settings['database.directory'], 'thermo'))
         thermo_db.libraryOrder = ['primaryThermoLibrary', 'NISTThermoLibrary', 'DFT_QCI_thermo', 'CBS_QB3_1dHR',
@@ -131,11 +172,12 @@ class ARD(object):
 
         # Filter reactions based on standard heat of reaction
         H298_reac = reac_mol.getH298(thermo_db)
-        prod_mols = [mol for mol in prod_mols if self.filterThreshold(H298_reac, mol, thermo_db=thermo_db)]
+        prod_mols_filtered = [mol for mol in prod_mols
+                              if self.filterThreshold(H298_reac, PM6_energy_reac, mol, thermo_db=thermo_db, **kwargs)]
 
         # Generate 3D geometries (make3D is False because coordinates already exist from the reactant)
         # and make job files
-        if prod_mols:
+        if prod_mols_filtered:
             self.logger.info('Feasible products:\n')
             rxn_dir = util.makeOutputSubdirectory(self.output_dir, 'reactions')
 
@@ -146,18 +188,30 @@ class ARD(object):
             else:
                 example_script_path = os.path.abspath(example_script)
 
-            for rxn, mol in enumerate(prod_mols):
-                mol.gen3D(forcefield=self.forcefield, d=self.distance, make3D=False)
+            # These two lines are required so that new coordinates are
+            # generated for each new product. Otherwise, Open Babel tries to
+            # use the coordinates of the previous molecule if it is isomorphic
+            # to the current one, even if it has different atom indices
+            # participating in the bonds. a hydrogen atom is chosen
+            # arbitrarily, since it will never be the same as any of the
+            # product structures.
+            Hatom = gen3D.readstring('smi', '[H]')
+            ff = pybel.ob.OBForceField.FindForceField(self.forcefield)
 
-                rxn_num = '{:03d}'.format(rxn)
+            for rxn, mol in enumerate(prod_mols_filtered):
+                mol.gen3D(forcefield=self.forcefield, d=self.distance, make3D=False)
+                ff.Setup(Hatom.OBMol)  # Ensures that new coordinates are generated for next molecule (see above)
+
+                rxn_num = '{:04d}'.format(rxn)
                 rxn_name = 'rxn' + rxn_num
                 output_dir = util.makeOutputSubdirectory(rxn_dir, rxn_num)
                 kwargs['output_dir'] = output_dir
                 kwargs['logname'] = 'rxn' + rxn_num
 
+                self.preopt(mol, **kwargs)
+
                 product = mol.toNode()
                 self.logger.info('Reaction {}:\n{}\n{}\n'.format(rxn, mol.write('can').strip(), product))
-
                 self.makeInputFile(product, **kwargs)
                 job_script = makeBatchSubmissionScript(rxn_name, example_script_path, output_dir)
 
@@ -176,15 +230,25 @@ class ARD(object):
         self.logger.info('\nARD terminated on ' + time.asctime())
         self.logger.info('Total ARD run time: {:.1f} s'.format(time.time() - start_time))
 
-    def filterThreshold(self, H298_reac, prod_mol, thermo_db=None):
+    def filterThreshold(self, H298_reac, PM6_energy_reac, prod_mol, thermo_db=None, **kwargs):
         """
         Filter threshold based on standard enthalpies of formation of reactants
         and products. Returns `True` if the heat of reaction is less than
-        `self.dh_cutoff`, `False` otherwise.
+        `self.dh_cutoff`, `False` otherwise. If the product is a carbene or
+        nitrene, a quick PM6 optimization is performed and the resulting
+        energies are used for filtering the reaction.
         """
-        # Calculate enthalpy of formation and heat of reaction
-        H298_prod = prod_mol.getH298(thermo_db)
-        dH = H298_prod - H298_reac
+        if PM6_energy_reac is not None and prod_mol.isCarbeneOrNitrene():
+            PM6_energy_prod = self.preopt(prod_mol, **kwargs)
+
+            if PM6_energy_prod is not None:
+                dH = PM6_energy_prod - PM6_energy_reac
+            else:
+                H298_prod = prod_mol.getH298(thermo_db)
+                dH = H298_prod - H298_reac
+        else:
+            H298_prod = prod_mol.getH298(thermo_db)
+            dH = H298_prod - H298_reac
 
         if dH < self.dh_cutoff:
             return True
@@ -239,7 +303,7 @@ def makeBatchSubmissionScript(name, example_script, outdir):
 
     return outpath
 
-def makeOverallSubmissionScript(cmd, job_script, outdir):
+def makeOverallSubmissionScript(cmd, job_script, outdir=''):
     """
     Create a bash shell script that when run will submit all TS search jobs to
     the job scheduler. The name of all job scripts has be given in `job_script`
@@ -307,7 +371,7 @@ def readInput(input_file):
     A dictionary containing all input parameters and their values is returned.
     """
     # Allowed keywords
-    keys = ('job_cmd', 'reac_smi', 'nbreak', 'nform', 'dh_cutoff', 'forcefield', 'distance', 'logname'
+    keys = ('job_cmd', 'reac_smi', 'nbreak', 'nform', 'dh_cutoff', 'forcefield', 'distance', 'logname',
             'method', 'nsteps', 'nnode', 'lsf', 'tol', 'gtol', 'nlstnodes',
             'qprog', 'theory', 'theory_preopt', 'nproc', 'mem')
 
