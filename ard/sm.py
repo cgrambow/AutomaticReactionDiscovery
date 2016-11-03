@@ -30,9 +30,8 @@
 
 """
 Contains relevant classes for executing transition state searches using the
-freezing string or growing string methods. The resulting transition state
-should be further optimized using another method in order to find the true
-transition state.
+freezing string method. The resulting transition state should be further
+optimized using another method in order to find the true transition state.
 """
 
 from __future__ import division
@@ -53,7 +52,7 @@ from interpolation import LST
 
 class String(object):
     """
-    Base class from which freezing and growing string methods can inherit.
+    Base class from which the freezing string method can inherit.
     The attributes are:
 
     =============== ======================== ===================================
@@ -559,240 +558,24 @@ class FSM(String):
 
 ###############################################################################
 
-class GSM(String):
-    """
-    Growing string method.
-    The attributes are:
-
-    ================== ===================== ==================================
-    Attribute          Type                  Description
-    ================== ===================== ==================================
-    `gtol`             ``float``             The overall string tolerance based on the sum of gradient magnitudes
-    ================== ===================== ==================================
-
-    """
-
-    def __init__(self, *args, **kwargs):
-        self.gtol = float(kwargs.pop('gtol', 0.3))
-        super(GSM, self).__init__(*args, **kwargs)
-
-    # def reparameterize(self, nodes_r, nodes_p, add_r=False, add_p=False):
-    #     """
-    #     Reparameterizes a GSM path based on the desired node spacing and adds
-    #     new nodes if desired based on an LST interpolation path containing all
-    #     nodes. Requires a list of reactant and product side nodes and an
-    #     indicator specifying whether new nodes should be added. No nodes are
-    #     returned if the string is fully grown, otherwise the reparameterized
-    #     lists of nodes are returned. At most one node is generated halfway
-    #     between the two innermost nodes if the distance between them is between
-    #     one and two times the desired node spacing.
-    #
-    #     The tangent vectors at each node are also returned. For the LST path,
-    #     this vector is determined from the two LST nodes that are directly
-    #     adjacent to the interpolated node.
-    #     """
-    #     if self.node_spacing is None:
-    #         raise Exception('Interpolation distance has to be set first')
-    #
-    #     # Compute distances between nodes and assign LST nodes
-    #     distances = np.array([nodes[i].getDistance(nodes[i + 1]) for i in range(0, len(nodes) - 1)])
-    #     nnodes_list = [int(round(d)) for d in distances / distances.sum() * nnodes]
-    #
-    #     # Create high density LST path between nodes
-    #     path, arclength = LST(node1, node2, self.nproc).getLSTpath(self.nLSTnodes)
-    #
-    #     # Find new nodes based on nodes that are closest to desired arc length spacing
-    #     if arclength[-1] < self.node_spacing:
-    #         return None, None
-    #     elif self.node_spacing <= arclength[-1] <= 2.0 * self.node_spacing:
-    #         new_node_idx = util.findClosest(arclength, arclength[-1] / 2.0)
-    #         return path[new_node_idx], path[new_node_idx - 1].getTangent(path[new_node_idx + 1])
-    #     new_node1_idx = util.findClosest(arclength, self.node_spacing)
-    #     new_node2_idx = util.findClosest(arclength, arclength[-1] - self.node_spacing)
-    #     tangent1 = path[new_node1_idx - 1].getTangent(path[new_node1_idx + 1])
-    #     tangent2 = path[new_node2_idx + 1].getTangent(path[new_node2_idx - 1])
-    #     return (path[new_node1_idx], path[new_node2_idx]), (tangent1, tangent2)
-    #
-    # def execute(self):
-    #     """
-    #     Run the growing string method and return a tuple containing all
-    #     optimized nodes along the FSM path and a tuple containing the energies
-    #     of each node. The output file is updated each time nodes have been
-    #     optimized.
-    #     """
-    #     start_time = time.time()
-    #     GSMpath, energies = self.initialize(self.logHeader)
-    #
-    # def finalize(self, start_time, success=True):
-    #     """
-    #     Finalize the GSM job.
-    #     """
-    #     self.logger.info('Total number of gradient evaluations: {0}'.format(self.ngrad))
-    #     if success:
-    #         self.logger.info('\nGSM job terminated successfully on ' + time.asctime())
-    #     else:
-    #         self.logger.error('\nGSM job terminated abnormally on ' + time.asctime())
-    #     self.logger.info('Total run time: {0:.1f} s\n'.format(time.time() - start_time))
-    #
-    # def perpOpt(self, node, tangent, nsteps=3, other_node=None, min_desired_energy_change=2.5, line_search_factor=0.7,
-    #             frontier_node=False):
-    #     """
-    #     Optimize node in direction of negative perpendicular gradient using the
-    #     Newton-Raphson method with a BFGS Hessian update scheme. Requires input
-    #     of tangent vector between closest two nodes on the string so that the
-    #     appropriate perpendicular gradient can be calculated. Also requires
-    #     that the innermost node on the other side of the string is input so
-    #     that the forward progress towards joining string ends can be assessed.
-    #     If no other node is specified, then the node is optimized without such
-    #     a constraint.
-    #
-    #     Returns the energy of the optimized node in Hartree and the
-    #     perpendicular gradient magnitude in Hartree/Angstrom.
-    #
-    #     Set `min_desired_energy_change` to the energy difference between
-    #     reactant and product if the difference is less than 2.5 kcal/mol.
-    #     """
-    #     # If the node is a frontier node, only optimize until the tolerance is reached
-    #     if frontier_node:
-    #         tol = self.tol
-    #     else:
-    #         tol = 0.0
-    #
-    #     # Compute maximum allowed distance between nodes based on initial distance
-    #     if other_node is not None:
-    #         max_distance = node.getDistance(other_node) + 0.5 * self.node_spacing
-    #     else:
-    #         max_distance = 0
-    #
-    #     # Initialize Hessian inverse to identity matrix
-    #     identity_mat = np.eye(3 * len(node.atoms))
-    #     hess_inv = np.copy(identity_mat)
-    #
-    #     # Convert units to Hartree
-    #     min_desired_energy_change /= 627.5095
-    #
-    #     # Calculate perpendicular gradient and energy
-    #     energy, perp_grad, perp_grad_mag = self.getPerpGrad(node, tangent, name='grad0')
-    #     self.ngrad += 1
-    #     energy_old = energy
-    #
-    #     # Create empty array for storing old perpendicular gradient
-    #     perp_grad_old = np.empty_like(perp_grad)
-    #
-    #     k = 1
-    #     unstable = False
-    #     while k <= nsteps and perp_grad_mag >= tol:
-    #         # Calculate desired change in energy
-    #         desired_energy_change = max(energy_old - energy, min_desired_energy_change)
-    #
-    #         # Calculate search direction, scaling factor, and exact line search condition
-    #         search_dir, scale_factor = self.getSearchDir(hess_inv, perp_grad, self.lsf, desired_energy_change)
-    #
-    #         # Handle unstable searches by reinitializing the Hessian
-    #         if scale_factor < 0.0:
-    #             # Terminate if resetting Hessian did not resolve instability
-    #             if unstable:
-    #                 self.logger.warning('Optimization terminated prematurely due to unstable scaling factor')
-    #                 break
-    #             unstable = True
-    #             np.copyto(hess_inv, identity_mat)
-    #             continue
-    #         unstable = False
-    #
-    #         # Take minimization step
-    #         step = scale_factor * search_dir
-    #         node.displaceCoordinates(step.reshape(len(node.atoms), 3))
-    #         logging.debug('Updated coordinates:\n' + str(node))
-    #
-    #         # Save old values
-    #         np.copyto(perp_grad_old, perp_grad)
-    #         energy_old = energy
-    #
-    #         # Calculate new perpendicular gradient and energy
-    #         energy, perp_grad, perp_grad_mag = self.getPerpGrad(node, tangent, name='grad' + str(k))
-    #         self.ngrad += 1
-    #
-    #         # Check termination conditions:
-    #         #     - Energy increase from previous step
-    #         #     - Small energy change
-    #         #     - Maximum number of steps
-    #         #     - Stable line search condition
-    #         #     - Perpendicular gradient tolerance reached
-    #         #     - Exceeding of maximum distance
-    #         if k > 1:
-    #             energy_change = energy - energy_old
-    #             if energy_change > 0.0:
-    #                 self.logger.info('Optimization terminated due to energy increase')
-    #                 return energy_old
-    #             if abs(energy_change) < 0.5 / 627.5095:
-    #                 self.logger.info('Optimization terminated due to small energy change')
-    #                 return energy
-    #         if k == self.nsteps:
-    #             return energy
-    #         if perp_grad_mag < self.tol:
-    #             self.logger.info('Perpendicular gradient convergence criterion satisfied')
-    #             return energy
-    #         if abs(perp_grad.dot(search_dir)) <= - self.lsf * perp_grad_old.dot(search_dir):
-    #             self.logger.info('Optimization terminated due to stable line search condition')
-    #             return energy
-    #         if node.getDistance(other_node) > max_distance:
-    #             self.logger.warning('Optimization terminated because maximum distance between nodes was exceeded')
-    #             return energy
-    #
-    #         # Update inverse Hessian
-    #         perp_grad_diff = perp_grad - perp_grad_old
-    #         hess_inv = self.updateHess(hess_inv, step, perp_grad_diff)
-    #         logging.debug('Hessian inverse:\n' + str(hess_inv))
-    #
-    #         # Update counter
-    #         k += 1
-    #
-    #     # Return optimized node energy, perpendicular gradient magnitude, and number of steps
-    #     return energy, perp_grad_mag, k - 1
-    #
-    # def logHeader(self, level=logging.INFO):
-    #     """
-    #     Output a log file header containing identifying information about the
-    #     FSM job.
-    #     """
-    #     logging.log(level, '###########################################################################')
-    #     logging.log(level, '########################## GROWING STRING METHOD ##########################')
-    #     logging.log(level, '###########################################################################')
-    #     logging.log(level, '# Frontier node addition threshold (Hartree/Angstrom):       {0:>5.2f}        #'.
-    #                 format(self.tol))
-    #     logging.log(level, '# Overall convergence threshold (Hartree/Angstrom):          {0:>5.2f}        #'.
-    #                 format(self.gtol))
-    #     logging.log(level, '# Number of nodes for calculation of interpolation distance: {0:>5}        #'.
-    #                 format(self.nnode))
-    #     logging.log(level, '# Number of high density LST nodes:                          {0:>5}        #'.
-    #                 format(self.nLSTnodes))
-    #     logging.log(level, '###########################################################################')
-    #     logging.log(level, 'Reactant structure:\n' + str(self.reactant))
-    #     logging.log(level, 'Product structure:\n' + str(self.product))
-    #     logging.log(level, '###########################################################################\n')
-
-###############################################################################
-
 if __name__ == '__main__':
     import argparse
 
     from main import readInput
 
     # Set up parser for reading the input filename from the command line
-    parser = argparse.ArgumentParser(description='A freezing/growing string method transition state search')
-    parser.add_argument('file', type=str, metavar='FILE', help='An input file describing the FSM/GSM job options')
+    parser = argparse.ArgumentParser(description='A freezing method transition state search')
+    parser.add_argument('file', type=str, metavar='FILE', help='An input file describing the FSM job options')
     args = parser.parse_args()
 
     # Read input file
     input_file = os.path.abspath(args.file)
     options = readInput(input_file)
-    jobtype = options['method']
 
     # Set output directory
     output_dir = os.path.abspath(os.path.dirname(input_file))
     options['output_dir'] = output_dir
 
     # Execute job
-    if jobtype == 'fsm':
-        fsm = FSM(**options)
-        fsm.execute()
+    fsm = FSM(**options)
+    fsm.execute()

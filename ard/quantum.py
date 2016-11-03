@@ -63,6 +63,27 @@ def submitProcess(cmd, *args):
     full_cmd = [cmd] + args
     subprocess.check_call(full_cmd)
 
+def which(program):
+    """
+    Check if an executable file exists and return the path to it or `None` if
+    it does not exist.
+    """
+    def is_exe(fpath):
+        return os.path.isfile(fpath) and os.access(fpath, os.X_OK)
+
+    fpath, fname = os.path.split(program)
+    if fpath:
+        if is_exe(program):
+            return program
+    else:
+        for path in os.environ["PATH"].split(os.pathsep):
+            path = path.strip('"')
+            exe_file = os.path.join(path, program)
+            if is_exe(exe_file):
+                return exe_file
+
+    return None
+
 ###############################################################################
 
 class Quantum(object):
@@ -298,8 +319,9 @@ class Gaussian(Quantum):
         if match:
             mem = ''.join(match.groups())
 
-        # Add dispersion for PM6
-        if theory == 'pm6':
+        # Add dispersion for PM6 if Gaussian 09 is used
+        g09path = which('g09')
+        if g09path is not None and theory == 'pm6':
             dispersion = 'EmpiricalDispersion=gd3'
         else:
             dispersion = ''

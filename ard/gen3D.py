@@ -133,6 +133,7 @@ class Molecule(pybel.Molecule):
 
     def __init__(self, OBMol):
         super(Molecule, self).__init__(OBMol)
+        self.label = None
         self.mols_indices = None
         self.mols = None
 
@@ -170,17 +171,46 @@ class Molecule(pybel.Molecule):
         node.energy = self.energy
         return node
 
+    def toAdjlist(self):
+        """
+        Convert to adjacency list as used in the RMG software.
+        """
+        # Dictionary of RMG bond types
+        bondtypes = {1: 'S', 2: 'D', 3: 'T'}
+
+        adjlist = 'name\n'
+        adjlist += 'multiplicity {}\n'.format(self.spin)
+
+        for atom in self:
+            number = atom.idx
+            label = ''
+            element = props.atomnum[atom.atomicnum]
+            spin = atom.spin
+            if spin == 0:
+                spin = 1
+            unpaired = spin - 1
+            pairs = (props.valenceelec[atom.atomicnum] - atom.OBAtom.BOSum() - unpaired) // 2
+            charge = atom.formalcharge
+
+            bondlist = ''
+            for bond in pybel.ob.OBAtomBondIter(atom.OBAtom):
+                other_atom = bond.GetBeginAtomIdx()
+                if other_atom == number:
+                    other_atom = bond.GetEndAtomIdx()
+                bondtype = bondtypes[bond.GetBondOrder()]
+                bondlist += ' {{{},{}}}'.format(other_atom, bondtype)
+
+            adjlist += '{:<2} {} {} u{} p{} c{}{}\n'.format(number, label, element, unpaired, pairs, charge, bondlist)
+
+        return adjlist
+
     def toRMGSpecies(self):
         """
         Convert to :class:`rmgpy.species.Species` object and return the object.
         """
-        smiles = self.write().strip()  # MAKE ADJLIST RATHER THAN SMILES CAUSE SMILES MIGHT BE WRONG
-        if smiles == '[C]':  # Elemental carbon is converted incorrectly by RMG
-            adjlist = 'multiplicity 3\n1 C u2 p1 c0'  # Use triplet carbon because it is lower in energy
-            spc = Species().fromAdjacencyList(adjlist)
-        else:
-            spc = Species().fromSMILES(smiles)
-        spc.label = smiles
+        adjlist = self.toAdjlist()
+        spc = Species().fromAdjacencyList(adjlist)
+        spc.label = ''
         return spc
 
     def assignSpinMultiplicity(self):
