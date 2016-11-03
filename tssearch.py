@@ -123,8 +123,6 @@ class TSSearch(object):
         """
         start_time = time.time()
         self.initialize()
-        if 'theory_preopt' in self.kwargs:
-            self.preoptimizeProduct()
         self.executeStringMethod()
 
         energy_max = self.fsm[0].energy
@@ -148,26 +146,7 @@ class TSSearch(object):
 
         self.logger.info('\nTS search terminated on ' + time.asctime())
         self.logger.info('Total TS search run time: {:.1f} s'.format(time.time() - start_time))
-        self.logger.info(
-            'Total number of gradient evaluations (excluding pre-optimization): {}'.format(self.ngrad)
-        )
-
-    @util.logStartAndFinish
-    @util.timeFn
-    def preoptimizeProduct(self):
-        """
-        Optimize the product geometry.
-        """
-        kwargs = self.kwargs.copy()
-        kwargs['theory'] = kwargs['theory_preopt']
-        try:
-            self.product.optimizeGeometry(self.Qclass, name='preopt_prod', **kwargs)
-        except QuantumError as e:
-            self.logger.warning('Pre-optimization of product structure was unsuccessful')
-            self.logger.info('Error message: {}'.format(e))
-        else:
-            self.logger.info('Optimized product structure:\n' + str(self.product))
-            self.logger.info('Energy ({}) = {}'.format(kwargs['theory'], self.product.energy))
+        self.logger.info('Total number of gradient evaluations: {}'.format(self.ngrad))
 
     def executeStringMethod(self):
         """
@@ -177,7 +156,10 @@ class TSSearch(object):
         try:
             self.fsm = fsm.execute()
         except QuantumError as e:
+            self.ngrad += fsm.ngrad
             self.logger.error('String method failed and terminated with the message: {}'.format(e))
+            self.logger.info('Number of gradient evaluations during failed string method: {0}'.format(fsm.ngrad))
+            self.logger.info('Total number of gradient evaluations: {}'.format(self.ngrad))
             raise TSError('TS search failed during string method')
 
         self.ngrad += fsm.ngrad
@@ -191,12 +173,21 @@ class TSSearch(object):
         """
         Run the exact transition state search and update `self.ts`.
         """
+        name = 'TSopt'
         self.logger.info('Initial TS structure:\n' + str(self.ts) + '\nEnergy = ' + str(self.ts.energy))
 
         try:
-            ngrad = self.ts.optimizeGeometry(self.Qclass, ts=True, name='TSopt', **self.kwargs)
+            ngrad = self.ts.optimizeGeometry(self.Qclass, ts=True, name=name, **self.kwargs)
         except QuantumError as e:
             self.logger.error('Exact TS search did not succeed and terminated with the message: {}'.format(e))
+
+            # Read number of gradients even if the optimization failed
+            q = self.Qclass(logfile=os.path.join(self.output_dir, name + '.log'))
+            ngrad = q.getNumGrad()
+            self.ngrad += ngrad
+            self.logger.info('\nNumber of gradient evaluations during failed TS search: {}\n'.format(ngrad))
+            self.logger.info('Total number of gradient evaluations: {}'.format(self.ngrad))
+
             raise TSError('TS search failed during exact TS search')
 
         with open(os.path.join(self.output_dir, 'ts.out'), 'w') as f:
@@ -218,6 +209,7 @@ class TSSearch(object):
             nimag, ngrad = self.ts.computeFrequencies(self.Qclass, name='freq', chkfile=chkfile, **self.kwargs)
         except QuantumError as e:
             self.logger.error('Frequency calculation did not succeed and terminated with the message: {}'.format(e))
+            self.logger.info('Total number of gradient evaluations: {}'.format(self.ngrad))
             raise TSError('TS search failed during frequency calculation')
 
         if nimag != 1:
@@ -308,6 +300,7 @@ class TSSearch(object):
                 path = q.getIRCpath()
                 ngrad = q.getNumGrad()
             except QuantumError as e:
+                self.logger.info('Total number of gradient evaluations: {}'.format(self.ngrad))
                 raise TSError('TS search failed reading IRC logfile: {}'.format(e))
 
             q.clearChkfile()
@@ -327,7 +320,9 @@ class TSSearch(object):
         self.logger.info('#######################################################################')
         self.logger.info('############################## TS SEARCH ##############################')
         self.logger.info('#######################################################################')
+        self.logger.info('Reactant SMILES: ' + str(self.reactant.toSMILES()))
         self.logger.info('Reactant structure:\n' + str(self.reactant))
+        self.logger.info('Product SMILES: ' + str(self.product.toSMILES()))
         self.logger.info('Product structure:\n' + str(self.product))
         self.logger.info('#######################################################################\n')
 

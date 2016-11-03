@@ -2,31 +2,13 @@
 <project version="4">
   <component name="ChangeListManager">
     <list default="true" id="be320640-be59-4f3f-a247-e4c7e85fe7e4" name="Default" comment="">
-      <change type="NEW" beforePath="" afterPath="$PROJECT_DIR$/gsm_ssm_files/gfstringq.exe" />
-      <change type="NEW" beforePath="" afterPath="$PROJECT_DIR$/gsm_ssm_files/ggrad" />
-      <change type="NEW" beforePath="" afterPath="$PROJECT_DIR$/gsm_ssm_files/gscreate" />
-      <change type="NEW" beforePath="" afterPath="$PROJECT_DIR$/gsm_ssm_files/gstart" />
-      <change type="NEW" beforePath="" afterPath="$PROJECT_DIR$/gsm_ssm_files/inpfileq" />
-      <change type="NEW" beforePath="" afterPath="$PROJECT_DIR$/gsm_ssm_files/ograd" />
-      <change type="NEW" beforePath="" afterPath="$PROJECT_DIR$/gsm_ssm_files/qend" />
-      <change type="NEW" beforePath="" afterPath="$PROJECT_DIR$/gsm_ssm_files/qmakegf" />
-      <change type="NEW" beforePath="" afterPath="$PROJECT_DIR$/gsm_ssm_files/qstart" />
-      <change type="NEW" beforePath="" afterPath="$PROJECT_DIR$/gsm_ssm_fromARDlog.py" />
-      <change type="NEW" beforePath="" afterPath="$PROJECT_DIR$/submit.sh" />
-      <change type="NEW" beforePath="" afterPath="$PROJECT_DIR$/submit_GSM_SSM.sh" />
-      <change type="DELETED" beforePath="$PROJECT_DIR$/submit.slurm" afterPath="" />
-      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/.idea/dictionaries/User1.xml" afterPath="$PROJECT_DIR$/.idea/dictionaries/User1.xml" />
+      <change type="DELETED" beforePath="$PROJECT_DIR$/submit.sh" afterPath="" />
       <change type="MODIFICATION" beforePath="$PROJECT_DIR$/.idea/workspace.xml" afterPath="$PROJECT_DIR$/.idea/workspace.xml" />
       <change type="MODIFICATION" beforePath="$PROJECT_DIR$/README.md" afterPath="$PROJECT_DIR$/README.md" />
-      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/ard/constants.py" afterPath="$PROJECT_DIR$/ard/constants.py" />
       <change type="MODIFICATION" beforePath="$PROJECT_DIR$/ard/gen3D.py" afterPath="$PROJECT_DIR$/ard/gen3D.py" />
       <change type="MODIFICATION" beforePath="$PROJECT_DIR$/ard/main.py" afterPath="$PROJECT_DIR$/ard/main.py" />
-      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/ard/node.py" afterPath="$PROJECT_DIR$/ard/node.py" />
-      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/ard/pgen.py" afterPath="$PROJECT_DIR$/ard/pgen.py" />
-      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/ard/props.py" afterPath="$PROJECT_DIR$/ard/props.py" />
       <change type="MODIFICATION" beforePath="$PROJECT_DIR$/ard/quantum.py" afterPath="$PROJECT_DIR$/ard/quantum.py" />
       <change type="MODIFICATION" beforePath="$PROJECT_DIR$/ard/sm.py" afterPath="$PROJECT_DIR$/ard/sm.py" />
-      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/ard/util.py" afterPath="$PROJECT_DIR$/ard/util.py" />
       <change type="MODIFICATION" beforePath="$PROJECT_DIR$/input.txt" afterPath="$PROJECT_DIR$/input.txt" />
       <change type="MODIFICATION" beforePath="$PROJECT_DIR$/tssearch.py" afterPath="$PROJECT_DIR$/tssearch.py" />
     </list>
@@ -51,8 +33,8 @@
       <file leaf-file-name="node.py" pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/ard/node.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="3021">
-              <caret line="190" column="0" selection-start-line="190" selection-start-column="0" selection-end-line="190" selection-end-column="0" />
+            <state relative-caret-position="-1998">
+              <caret line="129" column="21" selection-start-line="129" selection-start-column="21" selection-end-line="129" selection-end-column="21" />
               <folding />
             </state>
           </provider>
@@ -61,18 +43,8 @@
       <file leaf-file-name="quantum.py" pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/ard/quantum.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="840">
-              <caret line="284" column="33" selection-start-line="284" selection-start-column="31" selection-end-line="284" selection-end-column="33" />
-              <folding />
-            </state>
-          </provider>
-        </entry>
-      </file>
-      <file leaf-file-name="pgen.py" pinned="false" current-in-tab="false">
-        <entry file="file://$PROJECT_DIR$/ard/pgen.py">
-          <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="546">
-              <caret line="129" column="54" selection-start-line="129" selection-start-column="54" selection-end-line="129" selection-end-column="54" />
+            <state relative-caret-position="2475">
+              <caret line="325" column="13" selection-start-line="325" selection-start-column="13" selection-end-line="325" selection-end-column="13" />
               <folding />
             </state>
           </provider>
@@ -81,48 +53,28 @@
       <file leaf-file-name="gen3D.py" pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/ard/gen3D.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="606">
-              <caret line="243" column="19" selection-start-line="243" selection-start-column="19" selection-end-line="243" selection-end-column="19" />
+            <state relative-caret-position="-375">
+              <caret line="145" column="33" selection-start-line="145" selection-start-column="33" selection-end-line="145" selection-end-column="33" />
               <folding />
             </state>
           </provider>
         </entry>
       </file>
-      <file leaf-file-name="main.py" pinned="false" current-in-tab="true">
+      <file leaf-file-name="main.py" pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/ard/main.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="630">
-              <caret line="162" column="32" selection-start-line="162" selection-start-column="32" selection-end-line="162" selection-end-column="32" />
+            <state relative-caret-position="882">
+              <caret line="249" column="20" selection-start-line="249" selection-start-column="20" selection-end-line="249" selection-end-column="20" />
               <folding />
             </state>
           </provider>
         </entry>
       </file>
-      <file leaf-file-name="tssearch.py" pinned="false" current-in-tab="false">
+      <file leaf-file-name="tssearch.py" pinned="false" current-in-tab="true">
         <entry file="file://$PROJECT_DIR$/tssearch.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="642">
-              <caret line="138" column="22" selection-start-line="138" selection-start-column="22" selection-end-line="138" selection-end-column="22" />
-              <folding />
-            </state>
-          </provider>
-        </entry>
-      </file>
-      <file leaf-file-name="ard.py" pinned="false" current-in-tab="false">
-        <entry file="file://$PROJECT_DIR$/ard.py">
-          <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="480">
-              <caret line="43" column="30" selection-start-line="43" selection-start-column="30" selection-end-line="43" selection-end-column="30" />
-              <folding />
-            </state>
-          </provider>
-        </entry>
-      </file>
-      <file leaf-file-name="input.txt" pinned="false" current-in-tab="false">
-        <entry file="file://$PROJECT_DIR$/input.txt">
-          <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="294">
-              <caret line="14" column="25" selection-start-line="14" selection-start-column="25" selection-end-line="14" selection-end-column="25" />
+            <state relative-caret-position="354">
+              <caret line="39" column="0" selection-start-line="39" selection-start-column="0" selection-end-line="39" selection-end-column="0" />
               <folding />
             </state>
           </provider>
@@ -148,7 +100,6 @@
   <component name="IdeDocumentHistory">
     <option name="CHANGED_PATHS">
       <list>
-        <option value="$PROJECT_DIR$/properties.py" />
         <option value="$PROJECT_DIR$/conv.py" />
         <option value="$PROJECT_DIR$/props.py" />
         <option value="$PROJECT_DIR$/product_gen.py" />
@@ -179,26 +130,27 @@
         <option value="$PROJECT_DIR$/ard/interpolation.py" />
         <option value="$PROJECT_DIR$/ard/draw_rxns.py" />
         <option value="$PROJECT_DIR$/draw_rxns.py" />
-        <option value="$PROJECT_DIR$/ard/sm.py" />
-        <option value="$PROJECT_DIR$/README.md" />
         <option value="$PROJECT_DIR$/test.py" />
         <option value="$PROJECT_DIR$/submit.slurm" />
         <option value="$PROJECT_DIR$/ard/constants.py" />
         <option value="$PROJECT_DIR$/ard/util.py" />
         <option value="$PROJECT_DIR$/ard/props.py" />
-        <option value="$PROJECT_DIR$/ard/quantum.py" />
         <option value="$PROJECT_DIR$/submit.sh" />
         <option value="$PROJECT_DIR$/ard/pgen.py" />
-        <option value="$PROJECT_DIR$/ard/main.py" />
         <option value="$PROJECT_DIR$/submitGSM.sh" />
         <option value="$PROJECT_DIR$/gsmFromARDlog.py" />
         <option value="$PROJECT_DIR$/gsm_ssm_files/inpfileq" />
         <option value="$PROJECT_DIR$/test_stuff.py" />
-        <option value="$PROJECT_DIR$/gsm_ssm_fromARDlog.py" />
-        <option value="$PROJECT_DIR$/ard/gen3D.py" />
         <option value="$PROJECT_DIR$/ard/node.py" />
-        <option value="$PROJECT_DIR$/tssearch.py" />
+        <option value="$USER_HOME$/Dropbox (MIT)/Research/AutomaticReactionDiscovery/Korcek/full_ARD_NEW/analyze_failures.py" />
+        <option value="$PROJECT_DIR$/gsm_ssm_fromARDlog.py" />
+        <option value="$PROJECT_DIR$/ard/quantum.py" />
         <option value="$PROJECT_DIR$/input.txt" />
+        <option value="$PROJECT_DIR$/README.md" />
+        <option value="$PROJECT_DIR$/ard/main.py" />
+        <option value="$PROJECT_DIR$/ard/gen3D.py" />
+        <option value="$PROJECT_DIR$/ard/sm.py" />
+        <option value="$PROJECT_DIR$/tssearch.py" />
       </list>
     </option>
   </component>
@@ -252,7 +204,7 @@
       <foldersAlwaysOnTop value="true" />
     </navigator>
     <panes>
-      <pane id="Scope" />
+      <pane id="Scratches" />
       <pane id="ProjectPane">
         <subPane>
           <PATH>
@@ -287,13 +239,13 @@
           </PATH>
         </subPane>
       </pane>
-      <pane id="Scratches" />
+      <pane id="Scope" />
     </panes>
   </component>
   <component name="PropertiesComponent">
     <property name="settings.editor.selected.configurable" value="preferences.sourceCode" />
     <property name="settings.editor.splitter.proportion" value="0.24050634" />
-    <property name="last_opened_file_path" value="$PROJECT_DIR$" />
+    <property name="last_opened_file_path" value="$USER_HOME$/Dropbox (MIT)/Research/AutomaticReactionDiscovery/Korcek/full_ARD_NEW/analyze_failures.py" />
   </component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
@@ -624,23 +576,6 @@
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="0">
           <caret line="0" column="0" selection-start-line="0" selection-start-column="0" selection-end-line="0" selection-end-column="0" />
-          <folding />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/ard/node.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="3108">
-          <caret line="148" column="20" selection-start-line="148" selection-start-column="20" selection-end-line="148" selection-end-column="20" />
-          <folding />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/ard/gen3D.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="2856">
-          <caret line="136" column="24" selection-start-line="136" selection-start-column="24" selection-end-line="136" selection-end-column="24" />
-          <folding />
         </state>
       </provider>
     </entry>
@@ -648,38 +583,6 @@
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="252">
           <caret line="12" column="0" selection-start-line="12" selection-start-column="0" selection-end-line="12" selection-end-column="0" />
-          <folding />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/ard/main.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="7224">
-          <caret line="344" column="94" selection-start-line="344" selection-start-column="94" selection-end-line="344" selection-end-column="94" />
-          <folding />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/ard/quantum.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="5964">
-          <caret line="284" column="33" selection-start-line="284" selection-start-column="31" selection-end-line="284" selection-end-column="33" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/gsm_ssm_fromARDlog.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="0">
-          <caret line="0" column="0" selection-start-line="0" selection-start-column="0" selection-end-line="0" selection-end-column="0" />
-          <folding />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/submit_GSM_SSM.sh">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="252">
-          <caret line="12" column="0" selection-start-line="12" selection-start-column="0" selection-end-line="12" selection-end-column="0" />
-          <folding />
         </state>
       </provider>
     </entry>
@@ -882,13 +785,6 @@
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/ard/util.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="-2079">
-          <caret line="0" column="0" selection-start-line="0" selection-start-column="0" selection-end-line="0" selection-end-column="0" />
-        </state>
-      </provider>
-    </entry>
     <entry file="file://$PROJECT_DIR$/gsm_ssm_files/inpfileq">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="168">
@@ -910,11 +806,17 @@
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/gsm_ssm_fromARDlog.py">
+    <entry file="file://$PROJECT_DIR$/ard/interpolation.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="1551">
-          <caret line="302" column="65" selection-start-line="302" selection-start-column="65" selection-end-line="302" selection-end-column="65" />
-          <folding />
+        <state relative-caret-position="-2394">
+          <caret line="0" column="0" selection-start-line="0" selection-start-column="0" selection-end-line="0" selection-end-column="0" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$USER_HOME$/Dropbox (MIT)/Research/AutomaticReactionDiscovery/Korcek/full_ARD_NEW/analyze_failures.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="-2439">
+          <caret line="400" column="0" selection-start-line="400" selection-start-column="0" selection-end-line="400" selection-end-column="0" />
         </state>
       </provider>
     </entry>
@@ -922,70 +824,20 @@
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="252">
           <caret line="12" column="0" selection-start-line="12" selection-start-column="0" selection-end-line="12" selection-end-column="0" />
-          <folding />
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/ard/pgen.py">
+    <entry file="file://$PROJECT_DIR$/gsm_ssm_fromARDlog.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="546">
-          <caret line="129" column="54" selection-start-line="129" selection-start-column="54" selection-end-line="129" selection-end-column="54" />
-          <folding />
+        <state relative-caret-position="753">
+          <caret line="302" column="0" selection-start-line="302" selection-start-column="0" selection-end-line="302" selection-end-column="0" />
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/ard/gen3D.py">
+    <entry file="file://$PROJECT_DIR$/ard/util.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="606">
-          <caret line="243" column="19" selection-start-line="243" selection-start-column="19" selection-end-line="243" selection-end-column="19" />
-          <folding />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/input.txt">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="294">
-          <caret line="14" column="25" selection-start-line="14" selection-start-column="25" selection-end-line="14" selection-end-column="25" />
-          <folding />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/ard/sm.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="-5418">
-          <caret line="33" column="26" selection-start-line="33" selection-start-column="24" selection-end-line="33" selection-end-column="26" />
-          <folding />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/tssearch.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="642">
-          <caret line="138" column="22" selection-start-line="138" selection-start-column="22" selection-end-line="138" selection-end-column="22" />
-          <folding />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/ard/node.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="3021">
-          <caret line="190" column="0" selection-start-line="190" selection-start-column="0" selection-end-line="190" selection-end-column="0" />
-          <folding />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/ard/interpolation.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="-2394">
+        <state relative-caret-position="-1953">
           <caret line="0" column="0" selection-start-line="0" selection-start-column="0" selection-end-line="0" selection-end-column="0" />
-          <folding />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/ard/quantum.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="840">
-          <caret line="284" column="33" selection-start-line="284" selection-start-column="31" selection-end-line="284" selection-end-column="33" />
           <folding />
         </state>
       </provider>
@@ -998,10 +850,112 @@
         </state>
       </provider>
     </entry>
+    <entry file="file://$PROJECT_DIR$/ard/props.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="0">
+          <caret line="0" column="0" selection-start-line="0" selection-start-column="0" selection-end-line="0" selection-end-column="0" />
+          <folding />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/requirements.txt">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="0">
+          <caret line="0" column="0" selection-start-line="0" selection-start-column="0" selection-end-line="0" selection-end-column="0" />
+          <folding />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/setup.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="-549">
+          <caret line="0" column="0" selection-start-line="0" selection-start-column="0" selection-end-line="0" selection-end-column="0" />
+          <folding />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/README.md">
+      <provider editor-type-id="split-provider[text-editor;MarkdownPreviewEditor]">
+        <state split_layout="FIRST">
+          <first_editor relative-caret-position="687">
+            <caret line="68" column="0" selection-start-line="68" selection-start-column="0" selection-end-line="68" selection-end-column="0" />
+            <folding />
+          </first_editor>
+          <second_editor />
+        </state>
+      </provider>
+      <provider selected="true" editor-type-id="MarkdownFxPreviewEditor">
+        <state />
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/input.txt">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="294">
+          <caret line="14" column="0" selection-start-line="14" selection-start-column="0" selection-end-line="14" selection-end-column="0" />
+          <folding />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/ard/pgen.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="21">
+          <caret line="113" column="23" selection-start-line="113" selection-start-column="23" selection-end-line="113" selection-end-column="23" />
+          <folding />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/ard/constants.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="-66">
+          <caret line="0" column="0" selection-start-line="0" selection-start-column="0" selection-end-line="0" selection-end-column="0" />
+          <folding />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/ard/gen3D.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="-375">
+          <caret line="145" column="33" selection-start-line="145" selection-start-column="33" selection-end-line="145" selection-end-column="33" />
+          <folding />
+        </state>
+      </provider>
+    </entry>
     <entry file="file://$PROJECT_DIR$/ard/main.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="630">
-          <caret line="162" column="32" selection-start-line="162" selection-start-column="32" selection-end-line="162" selection-end-column="32" />
+        <state relative-caret-position="882">
+          <caret line="249" column="20" selection-start-line="249" selection-start-column="20" selection-end-line="249" selection-end-column="20" />
+          <folding />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/ard/node.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="-1998">
+          <caret line="129" column="21" selection-start-line="129" selection-start-column="21" selection-end-line="129" selection-end-column="21" />
+          <folding />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/ard/quantum.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="2475">
+          <caret line="325" column="13" selection-start-line="325" selection-start-column="13" selection-end-line="325" selection-end-column="13" />
+          <folding />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/ard/sm.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="438">
+          <caret line="194" column="19" selection-start-line="194" selection-start-column="19" selection-end-line="194" selection-end-column="19" />
+          <folding />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/tssearch.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="354">
+          <caret line="39" column="0" selection-start-line="39" selection-start-column="0" selection-end-line="39" selection-end-column="0" />
           <folding />
         </state>
       </provider>
