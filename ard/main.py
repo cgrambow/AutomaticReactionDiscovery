@@ -63,7 +63,7 @@ class ARD(object):
     =============== ======================== ==================================
     Attribute       Type                     Description
     =============== ======================== ==================================
-    `reac_smi`      ``string``               A valid SMILES string describing the reactant structure
+    `reac_smi`      ``str``                  A valid SMILES string describing the reactant structure
     `reactant`      :class:`node.Node`       A node object describing the reactant structure
     `nbreak`        ``int``                  The maximum number of bonds that may be broken
     `nform`         ``int``                  The maximum number of bonds that may be formed
@@ -101,7 +101,7 @@ class ARD(object):
         """
         self.logger.info('\nARD initiated on ' + time.asctime() + '\n')
         reac_mol = self.generateReactant3D()
-        self.reac_smi = reac_mol.write('can')
+        self.reac_smi = reac_mol.write('can').strip()
         self.logHeader()
         return reac_mol
 
@@ -162,10 +162,10 @@ class ARD(object):
         """
         start_time = time.time()
         reac_mol = self.initialize()
-        preopt_energy_reac = self.preopt(reac_mol, **kwargs)
         self.optimizeReactant(reac_mol, **kwargs)
 
         gen = Generate(reac_mol)
+        self.logger.info('Generating all possible products...')
         gen.generateProducts(nbreak=self.nbreak, nform=self.nform)
         prod_mols = gen.prod_mols
 
@@ -177,9 +177,9 @@ class ARD(object):
 
         # Filter reactions based on standard heat of reaction
         H298_reac = reac_mol.getH298(thermo_db)
+        self.logger.info('Filtering reactions...\n')
         prod_mols_filtered = [mol for mol in prod_mols
-                              if self.filterThreshold(H298_reac, preopt_energy_reac, mol,
-                                                      thermo_db=thermo_db, **kwargs)]
+                              if self.filterThreshold(H298_reac, mol, thermo_db, **kwargs)]
 
         # Generate 3D geometries (make3D is False because coordinates already exist from the reactant)
         # and make job files
@@ -207,8 +207,6 @@ class ARD(object):
                 kwargs['output_dir'] = output_dir
                 kwargs['logname'] = rxn_name
 
-                self.preopt(mol, **kwargs)
-
                 product = mol.toNode()
                 self.logger.info('Reaction {}:\n{}\n{}\n'.format(rxn, mol.write('can').strip(), product))
                 self.makeInputFile(product, **kwargs)
@@ -225,25 +223,14 @@ class ARD(object):
         self.logger.info('\nARD terminated on ' + time.asctime())
         self.logger.info('Total ARD run time: {:.1f} s'.format(time.time() - start_time))
 
-    def filterThreshold(self, H298_reac, preopt_energy_reac, prod_mol, thermo_db=None, **kwargs):
+    def filterThreshold(self, H298_reac, prod_mol, thermo_db, **kwargs):
         """
         Filter threshold based on standard enthalpies of formation of reactants
         and products. Returns `True` if the heat of reaction is less than
-        `self.dh_cutoff`, `False` otherwise. If the product is a carbene or
-        nitrene, a quick pre-optimization is performed and the resulting
-        energies are used for filtering the reaction.
+        `self.dh_cutoff`, `False` otherwise.
         """
-        if preopt_energy_reac is not None and prod_mol.isCarbeneOrNitrene():
-            preopt_energy_prod = self.preopt(prod_mol, **kwargs)
-
-            if preopt_energy_prod is not None:
-                dH = preopt_energy_prod - preopt_energy_reac
-            else:
-                H298_prod = prod_mol.getH298(thermo_db)
-                dH = H298_prod - H298_reac
-        else:
-            H298_prod = prod_mol.getH298(thermo_db)
-            dH = H298_prod - H298_reac
+        H298_prod = prod_mol.getH298(thermo_db)
+        dH = H298_prod - H298_reac
 
         if dH < self.dh_cutoff:
             return True

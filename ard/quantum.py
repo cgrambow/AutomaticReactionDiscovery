@@ -262,11 +262,11 @@ class Gaussian(Quantum):
         # Read IRC path (does not include corrector steps of last point if there was an error termination)
         path = []
         for line_num, line in enumerate(self.output):
-            if 'Input orientation' in line:
+            if 'Input orientation' in line or 'Z-Matrix orientation' in line:
                 coord_mat = self._formatArray(self.output[line_num + 5:line_num + 5 + natoms])
             elif 'SCF Done' in line:
                 energy = float(line.split()[4])
-            elif 'CHANGE IN THE REACTION COORDINATE' in line:
+            elif 'NET REACTION COORDINATE UP TO THIS POINT' in line:
                 path.append((coord_mat, energy))
 
         if not path:

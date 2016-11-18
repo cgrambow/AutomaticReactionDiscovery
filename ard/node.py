@@ -53,7 +53,7 @@ class Node(object):
     =============== ======================= ===================================
     Attribute       Type                    Description
     =============== ======================= ===================================
-    `coordinates`   :class:`numpy.ndarray`  A 3N x 3 array containing the 3D coordinates of each atom (in Angstrom)
+    `coordinates`   :class:`numpy.ndarray`  An N x 3 array containing the 3D coordinates of each atom (in Angstrom)
     `atoms`         ``list``                A list of length N containing the integer atomic number of each atom
     `multiplicity`  ``int``                 The multiplicity of this species, multiplicity = 2*total_spin+1
     `masses`        ``list``                A list of length N containing the masses of each atom
@@ -209,7 +209,7 @@ class Node(object):
 
     def displaceCoordinates(self, mod_array):
         """
-        Displaces the coordinates by adding the 3N x 3 :class:`numpy.ndarray`
+        Displaces the coordinates by adding the N x 3 :class:`numpy.ndarray`
         to the current coordinates.
         """
         self.coordinates += mod_array

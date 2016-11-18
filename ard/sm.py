@@ -50,6 +50,22 @@ from interpolation import LST
 
 ###############################################################################
 
+def removeDuplicateBondChanges(bc):
+    """
+    Given a list of bond changes as a numpy vector, remove duplicates.
+    """
+    if bc.size:
+        out = []
+        for b in bc:
+            if b[1] > b[0]:
+                out.append(b)
+
+        return np.vstack(out)
+    else:
+        return bc
+
+###############################################################################
+
 class String(object):
     """
     Base class from which the freezing string method can inherit.
@@ -60,6 +76,8 @@ class String(object):
     =============== ======================== ===================================
     `reactant`      :class:`node.Node`       A node object containing the coordinates and atoms of the reactant molecule
     `product`       :class:`node.Node`       A node object containing the coordinates and atoms of the product molecule
+    `BEreac`        :class:`numpy.ndarray`   The bond and electron matrix of the reactant
+    `bc`            ``list``                 A list of bond changes between reactant and product
     `nsteps`        ``int``                  The number of gradient evaluations per node optimization
     `nnode`         ``int``                  The desired number of nodes, which determines the spacing between them
     `tol`           ``float``                The gradient convergence tolerance (Hartree/Angstrom)
@@ -81,6 +99,10 @@ class String(object):
             raise Exception('Atom labels of reactant and product do not match')
         self.reactant = reactant
         self.product = product
+        self.BEreac = self.reactant.toBEMat()
+        self.bc = None
+        self.findBondChanges()
+
         self.nsteps = int(nsteps)
         self.nnode = int(nnode)
         self.tol = float(tol)
@@ -97,9 +119,19 @@ class String(object):
         # Set up logger
         if logger is None:
             log_level = logging.INFO
-            self.logger = util.initializeLog(log_level, os.path.join(self.output_dir, 'String.log'))
+            self.logger = util.initializeLog(log_level, os.path.join(self.output_dir, 'FSM.log'))
         else:
             self.logger = logger
+
+    def findBondChanges(self):
+        """
+        Save the list of bond changes between reactant and product.
+        """
+        BEprod = self.product.toBEMat()
+        Rmat = BEprod - self.BEreac
+        bc = np.transpose(np.nonzero(Rmat))
+        bc = removeDuplicateBondChanges(bc)
+        self.bc = bc.tolist()
 
     def coincidenceObjective(self, angles):
         """
@@ -201,14 +233,46 @@ class String(object):
 
     def writeStringfile(self, path):
         """
-        Writes the nodes along the path and their corresponding energies to
-        the output file.
+        Write the nodes along the path and their corresponding energies to the
+        output file.
         """
         with open(os.path.join(self.output_dir, 'string.out'), 'w') as f:
             for node_num, node in enumerate(path):
                 f.write('Node ' + str(node_num + 1) + ':\n')
                 f.write('Energy = ' + str(node.energy) + '\n')
                 f.write(str(node) + '\n')
+
+    def writeDistMat(self, node, msg=None):
+        """
+        Write the distance matrix at a node and check for undesired bond
+        changes.
+        """
+        with open(os.path.join(self.output_dir, 'bond_changes.out'), 'a') as f:
+            if msg is not None:
+                f.write(msg + '\n')
+
+            dist_mat = util.getDistMat(node.coordinates)
+            f.write(dist_mat + '\n')
+
+            if self.detectUndesiredBondChange(node):
+                f.write('Above distance matrix contains undesired bond change.\n')
+
+    def detectUndesiredBondChange(self, node):
+        """
+        Detect undesired bond changes that do not correspond to the desired
+        reaction between the given reactant and product. Returns a boolean.
+        """
+        BEmat = node.toBEMat()
+        Rmat = BEmat - self.BEreac
+        bc = np.transpose(np.nonzero(Rmat))
+        bc = removeDuplicateBondChanges(bc)
+        bc = bc.tolist()
+
+        for b in bc:
+            if b not in self.bc:
+                return True
+        else:
+            return False
 
     @util.timeFn
     def getPerpGrad(self, node, tangent, name='grad'):
@@ -444,6 +508,7 @@ class FSM(String):
         Set `min_desired_energy_change` to the energy difference between
         reactant and product if the difference is less than 2.5 kcal/mol.
         """
+        self.writeDistMat(node, msg='Distance matrix before perpendicular optimization:')
 
         # Compute maximum allowed distance between nodes based on initial distance
         if other_node is not None:
@@ -490,6 +555,7 @@ class FSM(String):
             step = scale_factor * search_dir
             node.displaceCoordinates(step.reshape(len(node.atoms), 3))
             logging.debug('Updated coordinates:\n' + str(node))
+            self.writeDistMat(node, msg='After step {}:'.format(k))
 
             # Save old values
             np.copyto(perp_grad_old, perp_grad)

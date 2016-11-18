@@ -1,0 +1,7 @@
+# PyCharm folder
+.idea
+
+# Compiled Python modules
+*.pyc
+*.so
+*.pyd

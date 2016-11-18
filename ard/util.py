@@ -176,7 +176,7 @@ def findClosest(a, x):
 
 def getDistMat(coords):
     """
-    Calculate and return distance matrix form given a 3N x 3 array of
+    Calculate and return distance matrix form given an N x 3 array of
     Cartesian coordinates. The matrix is N x N. Only the upper diagonal
     elements contain the distances. All other elements are set to 0.
     """
