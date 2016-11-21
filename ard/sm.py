@@ -45,6 +45,8 @@ from scipy import optimize
 
 import util
 import constants
+import props
+from quantum import QuantumError
 from node import Node
 from interpolation import LST
 
@@ -233,13 +235,15 @@ class String(object):
 
     def writeStringfile(self, path):
         """
-        Write the nodes along the path and their corresponding energies to the
-        output file.
+        Write the nodes along the path and their corresponding energies
+        relative to the reactant energy (in kcal/mol) to the output file.
         """
         with open(os.path.join(self.output_dir, 'string.out'), 'w') as f:
             for node_num, node in enumerate(path):
                 f.write('Node ' + str(node_num + 1) + ':\n')
-                f.write('Energy = ' + str(node.energy) + '\n')
+
+                energy = (node.energy - self.reactant.energy) * constants.hartree_to_kcal_per_mol
+                f.write('Energy = ' + str(energy) + '\n')
                 f.write(str(node) + '\n')
 
     def writeDistMat(self, node, msg=None):
@@ -252,7 +256,13 @@ class String(object):
                 f.write(msg + '\n')
 
             dist_mat = util.getDistMat(node.coordinates)
-            f.write(dist_mat + '\n')
+
+            dmat_string = ''
+            for anum, row in enumerate(dist_mat):
+                line = ' '.join(['{:7.4f}'.format(d) for d in row])
+                dmat_string += '{}  {}\n'.format(props.atomnum[node.atoms[anum]], line)
+
+            f.write(dmat_string)
 
             if self.detectUndesiredBondChange(node):
                 f.write('Above distance matrix contains undesired bond change.\n')
@@ -438,8 +448,10 @@ class FSM(String):
 
                 # Perpendicular optimization
                 self.logger.info('Optimizing final node')
+                self.writeDistMat(nodes, msg='Distance matrix before perpendicular optimization (final node):')
                 logging.debug('Tangent:\n' + str(tangents.reshape(len(nodes.atoms), 3)))
                 self.perpOpt(nodes, tangents, min_desired_energy_change=min_en_change)
+
                 self.logger.info('Optimized node:\n' + str(nodes))
                 self.logger.info('After opt distance from innermost reactant side node: {0:>8.4f} Angstrom'.
                                  format(nodes.getDistance(FSMpath[innernode_r_idx])))
@@ -466,11 +478,15 @@ class FSM(String):
 
                 # Perpendicular optimization
                 self.logger.info('Optimizing new reactant side node')
+                self.writeDistMat(nodes[0], msg='Distance matrix before perpendicular optimization (reactant side):')
                 logging.debug('Tangent:\n' + str(tangents[0].reshape(len(nodes[0].atoms), 3)))
                 self.perpOpt(nodes[0], tangents[0], nodes[1], min_en_change)
+
                 self.logger.info('Optimizing new product side node')
+                self.writeDistMat(nodes[1], msg='Distance matrix before perpendicular optimization (product side):')
                 logging.debug('Tangent:\n' + str(tangents[1].reshape(len(nodes[1].atoms), 3)))
                 self.perpOpt(nodes[1], tangents[1], nodes[0], min_en_change)
+
                 self.logger.info('Optimized nodes:\n' + str(nodes[0]) + '\n****\n' + str(nodes[1]))
                 self.logger.info(
                     'After opt distance between previous and current reactant side nodes: {0:>8.4f} Angstrom'.
@@ -508,7 +524,6 @@ class FSM(String):
         Set `min_desired_energy_change` to the energy difference between
         reactant and product if the difference is less than 2.5 kcal/mol.
         """
-        self.writeDistMat(node, msg='Distance matrix before perpendicular optimization:')
 
         # Compute maximum allowed distance between nodes based on initial distance
         if other_node is not None:
@@ -562,43 +577,51 @@ class FSM(String):
             energy_old = node.energy
 
             # Calculate new perpendicular gradient and set energy
-            perp_grad, perp_grad_mag = self.getPerpGrad(node, tangent, name='grad' + str(k))
+            try:
+                perp_grad, perp_grad_mag = self.getPerpGrad(node, tangent, name='grad' + str(k))
+            except QuantumError:
+                grad_success = False
+                pass  # Ignore error and use previous gradient
+            else:
+                grad_success = True
+
             self.ngrad += 1
 
             # Check termination conditions:
+            #     - Maximum number of steps
             #     - Energy increase from previous step
             #     - Small energy change
-            #     - Maximum number of steps
             #     - Stable line search condition
             #     - Perpendicular gradient tolerance reached
             #     - Exceeding of maximum distance
-            if k > 1:
-                energy_change = node.energy - energy_old
-                if energy_change > 0.0:
-                    self.logger.info('Optimization terminated due to energy increase')
-                    node.displaceCoordinates(-step.reshape(len(node.atoms), 3))
-                    node.energy = energy_old
-                    break
-                if abs(energy_change) < 0.5 / 627.5095:
-                    self.logger.info('Optimization terminated due to small energy change')
-                    break
             if k == self.nsteps:
                 self.logger.info('Optimization terminated because maximum number of steps was reached')
                 break
-            if perp_grad_mag < self.tol:
-                self.logger.info('Perpendicular gradient convergence criterion satisfied')
-                break
-            if abs(perp_grad.dot(search_dir)) <= - self.lsf * perp_grad_old.dot(search_dir):
-                self.logger.info('Optimization terminated due to stable line search condition')
-                break
-            if node.getDistance(other_node) > max_distance:
-                self.logger.warning('Optimization terminated because maximum distance between nodes was exceeded')
-                break
+            if grad_success:
+                if k > 1:
+                    energy_change = node.energy - energy_old
+                    if energy_change > 0.0:
+                        self.logger.info('Optimization terminated due to energy increase')
+                        node.displaceCoordinates(-step.reshape(len(node.atoms), 3))
+                        node.energy = energy_old
+                        break
+                    if abs(energy_change) < 0.5 / constants.hartree_to_kcal_per_mol:
+                        self.logger.info('Optimization terminated due to small energy change')
+                        break
+                if perp_grad_mag < self.tol:
+                    self.logger.info('Perpendicular gradient convergence criterion satisfied')
+                    break
+                if abs(perp_grad.dot(search_dir)) <= - self.lsf * perp_grad_old.dot(search_dir):
+                    self.logger.info('Optimization terminated due to stable line search condition')
+                    break
+                if node.getDistance(other_node) > max_distance:
+                    self.logger.warning('Optimization terminated because maximum distance between nodes was exceeded')
+                    break
 
-            # Update inverse Hessian
-            perp_grad_diff = perp_grad - perp_grad_old
-            hess_inv = self.updateHess(hess_inv, step, perp_grad_diff)
-            logging.debug('Hessian inverse:\n' + str(hess_inv))
+                # Update inverse Hessian
+                perp_grad_diff = perp_grad - perp_grad_old
+                hess_inv = self.updateHess(hess_inv, step, perp_grad_diff)
+                logging.debug('Hessian inverse:\n' + str(hess_inv))
 
             # Update counter
             k += 1

@@ -42,6 +42,7 @@ import numpy as np
 import pybel
 
 import props
+import util
 
 ###############################################################################
 
@@ -94,9 +95,9 @@ class Node(object):
         Return a human readable string representation of the object.
         """
         return_string = ''
-        for atom_num, atom in enumerate(self.coordinates):
+        for anum, atom in enumerate(self.coordinates):
             return_string += '{0}  {1[0]: 14.8f}{1[1]: 14.8f}{1[2]: 14.8f}\n'.format(
-                props.atomnum[self.atoms[atom_num]], atom)
+                props.atomnum[self.atoms[anum]], atom)
         return return_string[:-1]
 
     def __repr__(self):
