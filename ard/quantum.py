@@ -151,7 +151,15 @@ class Quantum(object):
             submitProcess(cmd, *args)
         except subprocess.CalledProcessError:
             if os.path.isfile(self.logfile):
-                msg = 'Quantum job terminated with an error'
+                with open(self.logfile, 'r') as f:
+                    f.seek(0, 2)
+                    fsize = f.tell()
+                    f.seek(max(fsize - 1024, 0), 0)  # Read last 1 kB of file
+                    lines = f.readlines()
+
+                lines = lines[-4:]  # Return last 4 lines
+
+                msg = 'Quantum job terminated with an error:\n' + ''.join(lines) + '\n'
                 raise QuantumError(msg)
             raise
 
