@@ -30,9 +30,10 @@
 
 """
 Contains the :class:`TSSearch` for finding transition states and reaction paths
-using FSM/GSM.
+using FSM.
 """
 
+import glob
 import logging
 import os
 import shutil
@@ -41,11 +42,12 @@ import time
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import numpy as np
 
 import ard.constants as constants
 import ard.util as util
-from ard.node import Node
 from ard.quantum import QuantumError
+from ard.node import Node
 from ard.sm import FSM
 
 ###############################################################################
@@ -60,7 +62,7 @@ class TSError(Exception):
 
 class TSSearch(object):
     """
-    Transition state finding using FSM/GSM with subsequent exact TS search and
+    Transition state finding using FSM with subsequent exact TS search and
     verification of the reaction path by intrinsic reaction coordinate
     calculation.
     The attributes are:
@@ -73,9 +75,11 @@ class TSSearch(object):
     `ts`           :class:`node.Node`       The exact transition state
     `irc`          ``list``                 The IRC path corresponding to the transition state
     `fsm`          ``list``                 The FSM path
+    `barrier`      ``float``                The reaction barrier in kcal/mol
+    `dH`           ``float``                The reaction energy in kcal/mol
     `output_dir`   ``str``                  The path to the output directory
     `Qclass`       ``class``                A class representing the quantum software
-    `kwargs`       ``dict``                 Options for FSM/GSM and quantum calculations
+    `kwargs`       ``dict``                 Options for FSM and quantum calculations
     `ngrad`        ``int``                  The total number of gradient evaluations
     `logger`       :class:`logging.Logger`  The logger
     ============== ======================== ===================================
@@ -96,6 +100,8 @@ class TSSearch(object):
         self.ts = None
         self.irc = None
         self.fsm = None
+        self.barrier = None
+        self.dH = None
         self.ngrad = None
 
         # Set up log file
@@ -123,6 +129,8 @@ class TSSearch(object):
         """
         start_time = time.time()
         self.initialize()
+        reac_opt_success = self.optimizeReactant()
+        prod_opt_success = self.optimizeProduct()
         self.executeStringMethod()
 
         energy_max = self.fsm[0].energy
@@ -134,19 +142,192 @@ class TSSearch(object):
         self.executeExactTSSearch()
         chkfile = os.path.join(self.output_dir, 'chkf.chk')
         self.computeFrequencies(chkfile)
-        self.executeIRC(chkfile)
-        self.finalize(start_time)
+        correct_reac, correct_prod = self.executeIRC(chkfile)
 
-    def finalize(self, start_time):
+        if correct_reac:
+            if not reac_opt_success:
+                reac = self.irc[0]
+                reac_opt, reac_opt_success = self.optimizeNode('irc_reac', reac)
+
+                if reac_opt_success:
+                    self.reactant = reac_opt
+                    writeNode(self.reactant, 'reac', self.output_dir)
+
+            if not correct_prod or not prod_opt_success:
+                prod = self.irc[-1]
+                prod_opt, prod_opt_success = self.optimizeNode('irc_prod', prod)
+
+                if prod_opt_success:
+                    self.product = prod_opt
+                    writeNode(self.product, 'prod', self.output_dir)
+
+            if reac_opt_success:
+                self.barrier = (self.ts.energy - self.reactant.energy) * constants.hartree_to_kcal_per_mol
+
+            if prod_opt_success:
+                self.dH = (self.product.energy - self.reactant.energy) * constants.hartree_to_kcal_per_mol
+
+        self.finalize(start_time, correct_prod)
+
+    def finalize(self, start_time, correct_prod):
         """
         Finalize the job.
         """
-        barrier = (self.ts.energy - self.reactant.energy) * constants.hartree_to_kcal_per_mol
-        self.logger.info('\nBarrier height = {:.2f} kcal/mol'.format(barrier))
+        fsm_energies = ['{:.1f}'.format((node.energy - self.reactant.energy) * constants.hartree_to_kcal_per_mol)
+                        for node in self.fsm]
+        irc_energies = ['{:.1f}'.format((node.energy - self.reactant.energy) * constants.hartree_to_kcal_per_mol)
+                        for node in self.irc]
+        self.logger.info('\nFSM path energies: ' + ' '.join(fsm_energies))
+        self.logger.info('IRC path energies: ' + ' '.join(irc_energies))
+
+        if self.barrier is not None:
+            self.logger.info('Barrier height = {:.2f} kcal/mol'.format(self.barrier))
+        if self.dH is not None:
+            self.logger.info('Reaction energy = {:.2f} kcal/mol'.format(self.dH))
+
+            if not correct_prod:
+                self.logger.info('Note: Reaction energy is based on unintended product')
 
         self.logger.info('\nTS search terminated on ' + time.asctime())
         self.logger.info('Total TS search run time: {:.1f} s'.format(time.time() - start_time))
         self.logger.info('Total number of gradient evaluations: {}'.format(self.ngrad))
+
+    @util.logStartAndFinish
+    @util.timeFn
+    def optimizeReactant(self):
+        """
+        Optimize reactant geometry and set reactant energy. The optimization is
+        done separately for each molecule in the reactant structure. Return
+        `True` if successful, `False` otherwise.
+        """
+        success = True
+        name = 'reac_opt'
+        reac_mol = self.reactant.toMolecule()
+        reac_cmat = self.reactant.toConnectivityMat()
+        reac_node = self.reactant.copy()
+
+        try:
+            ngrad = reac_mol.optimizeGeometry(self.Qclass, name=name, **self.kwargs)
+        except QuantumError as e:
+            success = False
+            self.logger.warning('Optimization of reactant structure was unsuccessful')
+            self.logger.info('Error message: {}'.format(e))
+
+            # Read number of gradients even if the optimization failed
+            ngrad = 0
+            for logname in glob.glob('{}*.log'.format(name)):
+                q = self.Qclass(logfile=os.path.join(self.output_dir, logname))
+                ngrad += q.getNumGrad()
+
+            self.logger.info('\nNumber of gradient evaluations during failed reactant optimization: {}'.format(ngrad))
+            self.logger.info('Proceeding with force field or partially optimized geometry\n')
+            self.reactant = reac_mol.toNode()
+        else:
+            self.reactant = reac_mol.toNode()
+            self.logger.info('Optimized reactant structure:\n' + str(self.reactant))
+            self.logger.info('Energy ({}) = {}'.format(self.kwargs['theory'].upper(), self.reactant.energy))
+            self.logger.info('\nNumber of gradient evaluations during reactant optimization: {}\n'.format(ngrad))
+
+        reac_cmat_new = self.reactant.toConnectivityMat()
+        if not np.array_equal(reac_cmat, reac_cmat_new):
+            success = False
+            self.logger.warning('Optimized geometry has wrong connectivity and will not be used\n')
+            self.reactant = reac_node
+
+        if success:
+            writeNode(self.reactant, 'reac', self.output_dir)
+
+        self.ngrad += ngrad
+        return success
+
+    @util.logStartAndFinish
+    @util.timeFn
+    def optimizeProduct(self):
+        """
+        Optimize product geometry and set product energy. The optimization is
+        done separately for each molecule in the product structure. Return
+        `True` if successful, `False` otherwise.
+        """
+        success = True
+        name = 'prod_opt'
+        prod_mol = self.product.toMolecule()
+        prod_cmat = self.product.toConnectivityMat()
+        prod_node = self.product.copy()
+
+        try:
+            ngrad = prod_mol.optimizeGeometry(self.Qclass, name=name, **self.kwargs)
+        except QuantumError as e:
+            success = False
+            self.logger.warning('Optimization of product structure was unsuccessful')
+            self.logger.info('Error message: {}'.format(e))
+
+            # Read number of gradients even if the optimization failed
+            ngrad = 0
+            for logname in glob.glob('{}*.log'.format(name)):
+                q = self.Qclass(logfile=os.path.join(self.output_dir, logname))
+                ngrad += q.getNumGrad()
+
+            self.logger.info('\nNumber of gradient evaluations during failed product optimization: {}'.format(ngrad))
+            self.logger.info('Proceeding with force field or partially optimized geometry\n')
+            self.product = prod_mol.toNode()
+        else:
+            self.product = prod_mol.toNode()
+            self.logger.info('Optimized product structure:\n' + str(self.product))
+            self.logger.info('Energy ({}) = {}'.format(self.kwargs['theory'].upper(), self.product.energy))
+            self.logger.info('\nNumber of gradient evaluations during product optimization: {}\n'.format(ngrad))
+
+        prod_cmat_new = self.product.toConnectivityMat()
+        if not np.array_equal(prod_cmat, prod_cmat_new):
+            success = False
+            self.logger.warning('Optimized geometry has wrong connectivity and will not be used\n')
+            self.product = prod_node
+
+        if success:
+            writeNode(self.product, 'prod', self.output_dir)
+
+        self.ngrad += ngrad
+        return success
+
+    @util.logStartAndFinish
+    @util.timeFn
+    def optimizeNode(self, name, node):
+        """
+        Optimize copy of node and set energy. The optimization is done
+        separately for each molecule in the structure. Return node copy and
+        return `True` if successful, `False` otherwise.
+        """
+        success = True
+        mol = node.toMolecule()
+        cmat_old = node.toConnectivityMat()
+
+        try:
+            ngrad = mol.optimizeGeometry(self.Qclass, name=name, **self.kwargs)
+        except QuantumError as e:
+            success = False
+            self.logger.warning('Optimization of structure was unsuccessful')
+            self.logger.info('Error message: {}'.format(e))
+
+            # Read number of gradients even if the optimization failed
+            ngrad = 0
+            for logname in glob.glob('{}*.log'.format(name)):
+                q = self.Qclass(logfile=os.path.join(self.output_dir, logname))
+                ngrad += q.getNumGrad()
+
+            self.logger.info('\nNumber of gradient evaluations during failed optimization: {}'.format(ngrad))
+            node_new = mol.toNode()
+        else:
+            node_new = mol.toNode()
+            self.logger.info('Optimized structure:\n' + str(node_new))
+            self.logger.info('Energy ({}) = {}'.format(self.kwargs['theory'].upper(), node_new.energy))
+            self.logger.info('\nNumber of gradient evaluations during optimization: {}\n'.format(ngrad))
+
+            cmat_new = node_new.toConnectivityMat()
+            if not np.array_equal(cmat_old, cmat_new):
+                success = False
+                self.logger.warning('Optimized geometry has wrong connectivity\n')
+
+        self.ngrad += ngrad
+        return node_new, success
 
     def executeStringMethod(self):
         """
@@ -158,7 +339,7 @@ class TSSearch(object):
         except QuantumError as e:
             self.ngrad += fsm.ngrad
             self.logger.error('String method failed and terminated with the message: {}'.format(e))
-            self.logger.info('Number of gradient evaluations during failed string method: {0}'.format(fsm.ngrad))
+            self.logger.info('Number of gradient evaluations during failed string method: {}'.format(fsm.ngrad))
             self.logger.info('Total number of gradient evaluations: {}'.format(self.ngrad))
             raise TSError('TS search failed during string method')
 
@@ -192,10 +373,12 @@ class TSSearch(object):
 
         with open(os.path.join(self.output_dir, 'ts.out'), 'w') as f:
             f.write('Transition state:\n')
-            f.write('Energy = ' + str(self.ts.energy) + '\n')
+            f.write('Energy ({}) = {}\n'.format(self.kwargs['theory'].upper(), self.ts.energy))
             f.write(str(self.ts) + '\n')
 
-        self.logger.info('Optimized TS structure:\n' + str(self.ts) + '\nEnergy = ' + str(self.ts.energy))
+        self.logger.info('Optimized TS structure:\n{}\nEnergy ({}) = {}'.format(self.ts,
+                                                                                self.kwargs['theory'].upper(),
+                                                                                self.ts.energy))
         self.logger.info('\nNumber of gradient evaluations during exact TS search: {}\n'.format(ngrad))
         self.ngrad += ngrad
 
@@ -224,7 +407,8 @@ class TSSearch(object):
     def executeIRC(self, chkfile):
         """
         Run an IRC calculation using the exact TS geometry and save the path to
-        `self.irc`.
+        `self.irc`. Return two booleans indicating whether or not the correct
+        reactant and product were found.
         """
         chkf_name, chkf_ext = os.path.splitext(chkfile)
         chkfile_copy = chkf_name + '_copy' + chkf_ext
@@ -233,38 +417,47 @@ class TSSearch(object):
         reverse_path, reverse_ngrad = self._runOneDirectionalIRC('IRC_reverse', 'reverse', chkfile_copy)
         ngrad = forward_ngrad + reverse_ngrad
 
-        # Check if endpoints correspond to reactant and product
+        # Check if endpoints correspond to reactant and product based on connectivity matrices
         # and try to orient IRC path so that it runs from reactant to product
         self.logger.info('Begin IRC endpoint check...')
+        reac_cmat = self.reactant.toConnectivityMat()
+        prod_cmat = self.product.toConnectivityMat()
+        irc_end_1_cmat = forward_path[-1].toConnectivityMat()
+        irc_end_2_cmat = reverse_path[-1].toConnectivityMat()
+
+        correct_reac, correct_prod = False, False
+        if np.array_equal(reac_cmat, irc_end_1_cmat):
+            self.irc = forward_path[::-1] + [self.ts] + reverse_path
+            correct_reac = True
+        elif np.array_equal(reac_cmat, irc_end_2_cmat):
+            self.irc = reverse_path[::-1] + [self.ts] + forward_path
+            correct_reac = True
+        else:
+            self.irc = forward_path[::-1] + [self.ts] + reverse_path
+
+        if np.array_equal(prod_cmat, irc_end_1_cmat):
+            correct_prod = True
+            if not correct_reac:
+                self.irc = reverse_path[::-1] + [self.ts] + forward_path
+        elif np.array_equal(prod_cmat, irc_end_2_cmat):
+            correct_prod = True
+
+        if correct_reac and correct_prod:
+            self.logger.info('IRC check was successful. The IRC path endpoints correspond to the reactant and product.')
+        elif correct_reac:
+            self.logger.warning('IRC check was unsuccessful. Wrong product!')
+        elif correct_prod:
+            self.logger.warning('IRC check was unsuccessful. Wrong reactant!')
+        else:
+            self.logger.warning('IRC check was unsuccessful. Wrong reactant and product!')
+
         reactant_smi = self.reactant.toSMILES()
         product_smi = self.product.toSMILES()
-        irc_end_1_smi = forward_path[-1].toSMILES()
-        irc_end_2_smi = reverse_path[-1].toSMILES()
-
-        check1, check2 = False, False
-        if reactant_smi == irc_end_1_smi:
-            self.irc = forward_path[::-1] + [self.ts] + reverse_path
-            check1 = 1
-        elif reactant_smi == irc_end_2_smi:
-            self.irc = reverse_path[::-1] + [self.ts] + forward_path
-            check1 = 2
-        else:
-            self.irc = forward_path[::-1] + [self.ts] + reverse_path
-        if product_smi == irc_end_1_smi or product_smi == irc_end_2_smi:
-            check2 = True
-
-        if check1 and check2:
-            self.logger.info('IRC check was successful. The IRC path endpoints correspond to the reactant and product.')
-        else:
-            self.logger.warning('IRC check was unsuccessful. IRC path may correspond to a different reaction.')
-            self.logger.warning('Check the results manually.')
-
+        irc_end_1_smi = self.irc[0].toSMILES()
+        irc_end_2_smi = self.irc[-1].toSMILES()
         self.logger.info('Coordinates converted to SMILES:')
-        endpoint_order = [irc_end_1_smi, irc_end_2_smi]
-        if check1 == 2:
-            endpoint_order = [irc_end_2_smi, irc_end_1_smi]
-        self.logger.info('Reactant: {0}\nProduct: {1}\nIRC endpoint 1: {2[0]}\nIRC endpoint 2: {2[1]}'.
-                         format(reactant_smi, product_smi, endpoint_order))
+        self.logger.info('Reactant: {}\nProduct: {}\nIRC endpoint 1: {}\nIRC endpoint 2: {}'.
+                         format(reactant_smi, product_smi, irc_end_1_smi, irc_end_2_smi))
 
         with open(os.path.join(self.output_dir, 'irc.out'), 'w') as f:
             for node_num, node in enumerate(self.irc):
@@ -278,6 +471,8 @@ class TSSearch(object):
 
         filepath = os.path.join(self.output_dir, 'IRCpath.png')
         drawPath(self.irc, filepath)
+
+        return correct_reac, correct_prod
 
     @util.timeFn
     def _runOneDirectionalIRC(self, name, direction, chkfile):
@@ -334,7 +529,7 @@ def drawPath(nodepath, filepath):
     :class:`node.Node` objects.
     """
     reac_energy = nodepath[0].energy
-    energies = [(node.energy - reac_energy) * 627.5095 for node in nodepath]
+    energies = [(node.energy - reac_energy) * constants.hartree_to_kcal_per_mol for node in nodepath]
     n = range(1, len(energies) + 1)
 
     plt.figure()
@@ -345,6 +540,15 @@ def drawPath(nodepath, filepath):
     plt.grid(True)
     plt.savefig(filepath)
 
+def writeNode(node, name, out_dir):
+    """
+    Write node geometry to file.
+    """
+    with open(os.path.join(out_dir, name + '.out'), 'w') as f:
+        f.write(name + '\n')
+        f.write('Energy = {}\n'.format(node.energy))
+        f.write(str(node) + '\n')
+
 ###############################################################################
 
 if __name__ == '__main__':
@@ -354,7 +558,9 @@ if __name__ == '__main__':
 
     # Set up parser for reading the input filename from the command line
     parser = argparse.ArgumentParser(description='A transition state search')
-    parser.add_argument('file', type=str, metavar='FILE', help='An input file describing the job options')
+    parser.add_argument('-n', '--nproc', default=1, type=int, metavar='N', help='number of processors')
+    parser.add_argument('-m', '--mem', default=2000, type=int, metavar='M', help='memory requirement')
+    parser.add_argument('file', type=str, metavar='infile', help='an input file describing the job options')
     args = parser.parse_args()
 
     # Read input file
@@ -364,6 +570,10 @@ if __name__ == '__main__':
     # Set output directory
     output_dir = os.path.abspath(os.path.dirname(input_file))
     options['output_dir'] = output_dir
+
+    # Set number of processors and memory
+    options['nproc'] = args.nproc
+    options['mem'] = str(args.mem) + 'mb'
 
     # Execute job
     tssearch = TSSearch(**options)

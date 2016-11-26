@@ -42,7 +42,7 @@ import numpy as np
 import pybel
 
 import props
-import util
+import gen3D
 
 ###############################################################################
 
@@ -106,6 +106,16 @@ class Node(object):
         """
         return 'Node({coords}, {self.atoms}, {self.multiplicity})'.format(coords=self.coordinates.tolist(), self=self)
 
+    def copy(self):
+        """
+        Create copy of `self`.
+        """
+        new = Node(self.coordinates, self.atoms, self.multiplicity)
+        new.masses = self.masses
+        new.energy = self.energy
+        new.gradient = self.gradient
+        return new
+
     def getXYZ(self):
         """
         Return a string of the node in the XYZ file format.
@@ -117,35 +127,6 @@ class Node(object):
         Convert node to a :class:`pybel.Molecule` object.
         """
         mol = pybel.readstring('xyz', self.getXYZ())
-        mol.OBMol.SetTotalSpinMultiplicity(self.multiplicity)
-        if self.energy is not None:
-            mol.OBMol.SetEnergy(self.energy)
-        return mol
-
-    def toSMILES(self):
-        """
-        Return a SMILES representation of the node.
-        """
-        mol = self.toPybelMol()
-        smiles = mol.write('can').strip()
-        return smiles
-
-    def toBEMat(self):
-        """
-        Return a bond and electron matrix (as a :class:`numpy.ndarray`)
-        containing bonding information about the node.
-
-        Note: The diagonal values are not populated.
-        """
-        natoms = len(self.atoms)
-        BEmat = np.zeros((natoms, natoms))
-
-        mol = self.toPybelMol()
-        for bond in pybel.ob.OBMolBondIter(mol.OBMol):
-            bond_tup = (bond.GetBeginAtomIdx() - 1, bond.GetEndAtomIdx() - 1, bond.GetBondOrder())
-
-            BEmat[bond_tup[0], bond_tup[1]] = bond_tup[2]
-            BEmat[bond_tup[1], bond_tup[0]] = bond_tup[2]
 
         # Detect hydrogen molecules separately, since Openbabel often does not create a bond for these
         Hatoms = []
@@ -164,13 +145,64 @@ class Node(object):
 
                 distance = np.linalg.norm(coords1 - coords2)
 
-                if distance <= 0.78:
-                    idx1 = potential_Hmol[0].idx - 1
-                    idx2 = potential_Hmol[1].idx - 1
-                    BEmat[idx1, idx2] = 1
-                    BEmat[idx2, idx1] = 1
+                if distance <= 1.05:
+                    mol.OBMol.AddBond(potential_Hmol[0].idx, potential_Hmol[1].idx, 1)
+
+        mol.OBMol.SetTotalSpinMultiplicity(self.multiplicity)
+        if self.energy is not None:
+            mol.OBMol.SetEnergy(self.energy)
+        return mol
+
+    def toMolecule(self):
+        """
+        Convert node to a :class:`gen3D.Molecule` object.
+        """
+        mol = self.toPybelMol()
+        mol = gen3D.Molecule(mol.OBMol)
+        return mol
+
+    def toSMILES(self):
+        """
+        Return a SMILES representation of the node.
+        """
+        mol = self.toPybelMol()
+        smiles = mol.write('can').strip()
+        return smiles
+
+    def toBEMat(self):
+        """
+        Return a bond and electron matrix (as a :class:`numpy.ndarray`)
+        containing bonding information about the node.
+
+        Note: The diagonal values are not populated.
+        """
+        natoms = len(self.atoms)
+        BEmat = np.zeros((natoms, natoms), dtype=np.int)
+
+        mol = self.toPybelMol()
+        for bond in pybel.ob.OBMolBondIter(mol.OBMol):
+            bond_tup = (bond.GetBeginAtomIdx() - 1, bond.GetEndAtomIdx() - 1, bond.GetBondOrder())
+
+            BEmat[bond_tup[0], bond_tup[1]] = bond_tup[2]
+            BEmat[bond_tup[1], bond_tup[0]] = bond_tup[2]
 
         return BEmat
+
+    def toConnectivityMat(self):
+        """
+        Return the connectivity matrix of the node as :class:`numpy.ndarray`.
+        """
+        natoms = len(self.atoms)
+        cmat = np.zeros((natoms, natoms), dtype=np.int)
+
+        mol = self.toPybelMol()
+        for bond in pybel.ob.OBMolBondIter(mol.OBMol):
+            bond_tup = (bond.GetBeginAtomIdx() - 1, bond.GetEndAtomIdx() - 1)
+
+            cmat[bond_tup[0], bond_tup[1]] = 1
+            cmat[bond_tup[1], bond_tup[0]] = 1
+
+        return cmat
 
     def getTotalMass(self, atoms=None):
         """

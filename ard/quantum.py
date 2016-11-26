@@ -159,7 +159,7 @@ class Quantum(object):
 
                 lines = lines[-4:]  # Return last 4 lines
 
-                msg = 'Quantum job terminated with an error:\n' + ''.join(lines) + '\n'
+                msg = 'Quantum job terminated with an error:\n' + ''.join(lines)
                 raise QuantumError(msg)
             raise
 
@@ -202,7 +202,7 @@ class Gaussian(Quantum):
                     if i > 5:
                         return natoms
                     continue
-            elif 'Input orientation' in line:
+            elif 'Input orientation' in line or 'Z-Matrix orientation' in line:
                 read = True
         raise QuantumError('Number of atoms could not be found in Gaussian output')
 
@@ -244,7 +244,7 @@ class Gaussian(Quantum):
 
         # Read last occurrence of geometry
         for line_num, line in enumerate(reversed(self.output)):
-            if 'Input orientation' in line:
+            if 'Input orientation' in line or 'Z-Matrix orientation' in line:
                 coord_mat_str = self.output[-(line_num - 4):-(line_num - 4 - natoms)]
                 break
         else:
@@ -345,7 +345,7 @@ class Gaussian(Quantum):
                 f.write('%mem=' + mem + '\n')
                 f.write('%nprocshared=' + str(int(nproc)) + '\n')
                 if jobtype == 'opt':
-                    f.write('# opt=(maxcycles=100) {} {} nosymm test\n\n'.format(theory, dispersion))
+                    f.write('# opt=(maxcycles=200) {} {} nosymm test\n\n'.format(theory, dispersion))
                 elif jobtype == 'ts':
                     f.write('# opt=(ts,noeigen,{},maxcycles=100) {} {} nosymm test\n\n'.format(fc, theory, dispersion))
                 elif jobtype == 'irc':
@@ -355,8 +355,14 @@ class Gaussian(Quantum):
                         direction = 'reverse'
                     if direction not in ('forward', 'reverse'):
                         raise Exception('Invalid IRC direction')
-                    f.write('# irc=({},{},maxpoints=60,stepsize=8,maxcycle=20) {} {} iop(1/7=300) nosymm test\n\n'.
-                            format(direction, fc, theory, dispersion))
+                    if g09path is not None:
+                        f.write(
+                            '# irc=({},{},recalcfc=(predictor=18,corrector=10),maxpoints=60,'.format(direction, fc) +
+                            'stepsize=8,maxcycle=25) {} {} iop(1/7=300) nosymm test\n\n'.format(theory, dispersion)
+                        )
+                    else:
+                        f.write('# irc=({},{},maxpoints=60,stepsize=8,maxcycle=25) {} {} iop(1/7=300) nosymm test\n\n'.
+                                format(direction, fc, theory, dispersion))
 
                 else:
                     f.write('# {} {} {} nosymm test\n\n'.format(jobtype, theory, dispersion))

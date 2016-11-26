@@ -40,7 +40,7 @@ if __name__ == '__main__':
 
     # Set up parser for reading the input filename from the command line
     parser = argparse.ArgumentParser(description='Automatic Reaction Discovery')
-    parser.add_argument('file', type=str, metavar='FILE', help='An input file describing the job options')
+    parser.add_argument('file', type=str, metavar='infile', help='An input file describing the job options')
     args = parser.parse_args()
 
     # Read input file

@@ -78,7 +78,7 @@ class String(object):
     =============== ======================== ===================================
     `reactant`      :class:`node.Node`       A node object containing the coordinates and atoms of the reactant molecule
     `product`       :class:`node.Node`       A node object containing the coordinates and atoms of the product molecule
-    `BEreac`        :class:`numpy.ndarray`   The bond and electron matrix of the reactant
+    `reac_cmat`     :class:`numpy.ndarray`   The connectivity matrix of the reactant
     `bc`            ``list``                 A list of bond changes between reactant and product
     `nsteps`        ``int``                  The number of gradient evaluations per node optimization
     `nnode`         ``int``                  The desired number of nodes, which determines the spacing between them
@@ -101,7 +101,7 @@ class String(object):
             raise Exception('Atom labels of reactant and product do not match')
         self.reactant = reactant
         self.product = product
-        self.BEreac = self.reactant.toBEMat()
+        self.reac_cmat = self.reactant.toConnectivityMat()
         self.bc = None
         self.findBondChanges()
 
@@ -129,8 +129,8 @@ class String(object):
         """
         Save the list of bond changes between reactant and product.
         """
-        BEprod = self.product.toBEMat()
-        Rmat = BEprod - self.BEreac
+        prod_cmat = self.product.toConnectivity()
+        Rmat = prod_cmat - self.reac_cmat
         bc = np.transpose(np.nonzero(Rmat))
         bc = removeDuplicateBondChanges(bc)
         self.bc = bc.tolist()
@@ -209,8 +209,7 @@ class String(object):
         # Initialize path by adding reactant and product structures and computing their energies
         self.logger.info('Calculating reactant and product energies')
         path = [self.reactant, self.product]
-        if self.reactant.energy is None:
-            self.reactant.computeEnergy(self.Qclass, name='reac_energy', **self.kwargs)
+        self.reactant.computeEnergy(self.Qclass, name='reac_energy', **self.kwargs)
         self.product.computeEnergy(self.Qclass, name='prod_energy', **self.kwargs)
         self.logger.info(
             'Reactant: {0:.9f} Hartree; Product: {1:.9f} Hartree'.format(self.reactant.energy, self.product.energy)
@@ -272,8 +271,8 @@ class String(object):
         Detect undesired bond changes that do not correspond to the desired
         reaction between the given reactant and product. Returns a boolean.
         """
-        BEmat = node.toBEMat()
-        Rmat = BEmat - self.BEreac
+        cmat = node.toConnectivityMat()
+        Rmat = cmat - self.reac_cmat
         bc = np.transpose(np.nonzero(Rmat))
         bc = removeDuplicateBondChanges(bc)
         bc = bc.tolist()
@@ -293,14 +292,14 @@ class String(object):
         """
         # Calculate gradient and energy
         node.computeGradient(self.Qclass, name=name, **self.kwargs)
-        logging.debug('Gradient:\n' + str(node.gradient.reshape(len(node.atoms), 3)))
-        logging.debug('Energy: ' + str(node.energy))
+        self.logger.debug('Gradient:\n' + str(node.gradient.reshape(len(node.atoms), 3)))
+        self.logger.debug('Energy: ' + str(node.energy))
 
         # Calculate perpendicular gradient and its magnitude
         perp_grad = (np.eye(3 * len(node.atoms)) - np.outer(tangent, tangent)).dot(node.gradient.flatten())
         perp_grad_mag = np.linalg.norm(perp_grad)
-        logging.debug('Perpendicular gradient:\n' + str(perp_grad.reshape(len(node.atoms), 3)))
-        logging.debug('Magnitude: ' + str(perp_grad_mag))
+        self.logger.debug('Perpendicular gradient:\n' + str(perp_grad.reshape(len(node.atoms), 3)))
+        self.logger.debug('Magnitude: ' + str(perp_grad_mag))
 
         return perp_grad, perp_grad_mag
 
@@ -449,8 +448,9 @@ class FSM(String):
                 # Perpendicular optimization
                 self.logger.info('Optimizing final node')
                 self.writeDistMat(nodes, msg='Distance matrix before perpendicular optimization (final node):')
-                logging.debug('Tangent:\n' + str(tangents.reshape(len(nodes.atoms), 3)))
+                self.logger.debug('Tangent:\n' + str(tangents.reshape(len(nodes.atoms), 3)))
                 self.perpOpt(nodes, tangents, min_desired_energy_change=min_en_change)
+                self.logger.info('Energy = {0:.9f} Hartree'.format(nodes.energy))
 
                 self.logger.info('Optimized node:\n' + str(nodes))
                 self.logger.info('After opt distance from innermost reactant side node: {0:>8.4f} Angstrom'.
@@ -479,13 +479,15 @@ class FSM(String):
                 # Perpendicular optimization
                 self.logger.info('Optimizing new reactant side node')
                 self.writeDistMat(nodes[0], msg='Distance matrix before perpendicular optimization (reactant side):')
-                logging.debug('Tangent:\n' + str(tangents[0].reshape(len(nodes[0].atoms), 3)))
+                self.logger.debug('Tangent:\n' + str(tangents[0].reshape(len(nodes[0].atoms), 3)))
                 self.perpOpt(nodes[0], tangents[0], nodes[1], min_en_change)
+                self.logger.info('Energy = {0:.9f} Hartree'.format(nodes[0].energy))
 
                 self.logger.info('Optimizing new product side node')
                 self.writeDistMat(nodes[1], msg='Distance matrix before perpendicular optimization (product side):')
-                logging.debug('Tangent:\n' + str(tangents[1].reshape(len(nodes[1].atoms), 3)))
+                self.logger.debug('Tangent:\n' + str(tangents[1].reshape(len(nodes[1].atoms), 3)))
                 self.perpOpt(nodes[1], tangents[1], nodes[0], min_en_change)
+                self.logger.info('Energy = {0:.9f} Hartree'.format(nodes[1].energy))
 
                 self.logger.info('Optimized nodes:\n' + str(nodes[0]) + '\n****\n' + str(nodes[1]))
                 self.logger.info(
@@ -569,7 +571,7 @@ class FSM(String):
             # Take minimization step
             step = scale_factor * search_dir
             node.displaceCoordinates(step.reshape(len(node.atoms), 3))
-            logging.debug('Updated coordinates:\n' + str(node))
+            self.logger.debug('Updated coordinates:\n' + str(node))
             self.writeDistMat(node, msg='After step {}:'.format(k))
 
             # Save old values
@@ -580,6 +582,7 @@ class FSM(String):
             try:
                 perp_grad, perp_grad_mag = self.getPerpGrad(node, tangent, name='grad' + str(k))
             except QuantumError:
+                self.logger.info('SCF error ignored. Previous gradient used.')
                 grad_success = False
                 pass  # Ignore error and use previous gradient
             else:
@@ -621,7 +624,7 @@ class FSM(String):
                 # Update inverse Hessian
                 perp_grad_diff = perp_grad - perp_grad_old
                 hess_inv = self.updateHess(hess_inv, step, perp_grad_diff)
-                logging.debug('Hessian inverse:\n' + str(hess_inv))
+                self.logger.debug('Hessian inverse:\n' + str(hess_inv))
 
             # Update counter
             k += 1
@@ -653,8 +656,10 @@ if __name__ == '__main__':
     from main import readInput
 
     # Set up parser for reading the input filename from the command line
-    parser = argparse.ArgumentParser(description='A freezing method transition state search')
-    parser.add_argument('file', type=str, metavar='FILE', help='An input file describing the FSM job options')
+    parser = argparse.ArgumentParser(description='A freezing string method transition state search')
+    parser.add_argument('-n', '--nproc', default=1, type=int, metavar='N', help='number of processors')
+    parser.add_argument('-m', '--mem', default=2000, type=int, metavar='M', help='memory requirement')
+    parser.add_argument('file', type=str, metavar='infile', help='an input file describing the FSM job options')
     args = parser.parse_args()
 
     # Read input file
@@ -664,6 +669,10 @@ if __name__ == '__main__':
     # Set output directory
     output_dir = os.path.abspath(os.path.dirname(input_file))
     options['output_dir'] = output_dir
+
+    # Set number of processors
+    options['nproc'] = args.nproc
+    options['mem'] = str(args.mem) + 'mb'
 
     # Execute job
     fsm = FSM(**options)

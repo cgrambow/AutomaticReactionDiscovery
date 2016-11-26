@@ -64,7 +64,6 @@ class ARD(object):
     Attribute       Type                     Description
     =============== ======================== ==================================
     `reac_smi`      ``str``                  A valid SMILES string describing the reactant structure
-    `reactant`      :class:`node.Node`       A node object describing the reactant structure
     `nbreak`        ``int``                  The maximum number of bonds that may be broken
     `nform`         ``int``                  The maximum number of bonds that may be formed
     `dh_cutoff`     ``float``                Heat of reaction cutoff (kcal/mol) for reactions that are too endothermic
@@ -90,7 +89,6 @@ class ARD(object):
         qprog = kwargs.get('qprog', 'gau')
         self.Qclass = util.assignQclass(qprog)
         self.output_dir = output_dir
-        self.reactant = None
         log_level = logging.INFO
         self.logger = util.initializeLog(log_level, os.path.join(self.output_dir, 'ARD.log'), logname='main')
 
@@ -113,8 +111,7 @@ class ARD(object):
         """
         reac_mol = gen3D.readstring('smi', self.reac_smi)
         reac_mol.addh()
-        reac_mol.gen3D(forcefield=self.forcefield, d=self.distance)
-        self.reactant = reac_mol.toNode()
+        reac_mol.gen3D(forcefield=self.forcefield)
         return reac_mol
 
     def preopt(self, mol, **kwargs):
@@ -137,37 +134,19 @@ class ARD(object):
 
         return mol.energy * constants.hartree_to_kcal_per_mol
 
-    @util.logStartAndFinish
-    @util.timeFn
-    def optimizeReactant(self, reac_mol, **kwargs):
-        """
-        Optimize reactant geometry and set reactant energy. The optimization is
-        done separately for each molecule in the reactant structure.
-        """
-        try:
-            ngrad = reac_mol.optimizeGeometry(self.Qclass, name='reac_opt', **kwargs)
-        except QuantumError as e:
-            self.logger.warning('Optimization of reactant structure was unsuccessful')
-            self.logger.info('Error message: {}'.format(e))
-            self.logger.info('Proceeding with force field geometry')
-        else:
-            self.reactant = reac_mol.toNode()
-            self.logger.info('Optimized reactant structure:\n' + str(self.reactant))
-            self.logger.info('Energy ({}) = {}'.format(kwargs['theory'], self.reactant.energy))
-            self.logger.info('\nNumber of gradient evaluations during reactant optimization: {}\n'.format(ngrad))
-
     def execute(self, **kwargs):
         """
         Execute the automatic reaction discovery procedure.
         """
         start_time = time.time()
         reac_mol = self.initialize()
-        self.optimizeReactant(reac_mol, **kwargs)
+        # self.optimizeReactant(reac_mol, **kwargs)
 
         gen = Generate(reac_mol)
         self.logger.info('Generating all possible products...')
         gen.generateProducts(nbreak=self.nbreak, nform=self.nform)
         prod_mols = gen.prod_mols
+        self.logger.info('{} possible products generated\n'.format(len(prod_mols)))
 
         # Load thermo database and choose which libraries to search
         thermo_db = ThermoDatabase()
@@ -177,12 +156,11 @@ class ARD(object):
 
         # Filter reactions based on standard heat of reaction
         H298_reac = reac_mol.getH298(thermo_db)
-        self.logger.info('Filtering reactions...\n')
-        prod_mols_filtered = [mol for mol in prod_mols
-                              if self.filterThreshold(H298_reac, mol, thermo_db, **kwargs)]
+        self.logger.info('Filtering reactions...')
+        prod_mols_filtered = [mol for mol in prod_mols if self.filterThreshold(H298_reac, mol, thermo_db, **kwargs)]
+        self.logger.info('{} products remaining\n'.format(len(prod_mols_filtered)))
 
-        # Generate 3D geometries (make3D is False because coordinates already exist from the reactant)
-        # and make job files
+        # Generate 3D geometries
         if prod_mols_filtered:
             self.logger.info('Feasible products:\n')
             rxn_dir = util.makeOutputSubdirectory(self.output_dir, 'reactions')
@@ -197,9 +175,22 @@ class ARD(object):
             Hatom = gen3D.readstring('smi', '[H]')
             ff = pybel.ob.OBForceField.FindForceField(self.forcefield)
 
+            reac_mol_copy = reac_mol.copy()
             for rxn, mol in enumerate(prod_mols_filtered):
-                mol.gen3D(forcefield=self.forcefield, d=self.distance, make3D=False)
+                mol.gen3D(forcefield=self.forcefield, make3D=False)
+                arrange3D = gen3D.Arrange3D(reac_mol, mol)
+                msg = arrange3D.arrangeIn3D()
+                if msg != '':
+                    self.logger.info(msg)
+
                 ff.Setup(Hatom.OBMol)  # Ensures that new coordinates are generated for next molecule (see above)
+                reac_mol.gen3D(make3D=False)
+                ff.Setup(Hatom.OBMol)
+                mol.gen3D(make3D=False)
+                ff.Setup(Hatom.OBMol)
+
+                reactant = reac_mol.toNode()
+                product = mol.toNode()
 
                 rxn_num = '{:04d}'.format(rxn)
                 rxn_name = 'rxn' + rxn_num
@@ -207,9 +198,10 @@ class ARD(object):
                 kwargs['output_dir'] = output_dir
                 kwargs['logname'] = rxn_name
 
-                product = mol.toNode()
-                self.logger.info('Reaction {}:\n{}\n{}\n'.format(rxn, mol.write('can').strip(), product))
-                self.makeInputFile(product, **kwargs)
+                self.logger.info('Product {}: {}\n{}\n****\n{}\n'.format(rxn, product.toSMILES(), reactant, product))
+                self.makeInputFile(reactant, product, **kwargs)
+
+                reac_mol.setCoordsFromMol(reac_mol_copy)
         else:
             self.logger.info('No feasible products found')
 
@@ -236,7 +228,8 @@ class ARD(object):
             return True
         return False
 
-    def makeInputFile(self, product, **kwargs):
+    @staticmethod
+    def makeInputFile(reactant, product, **kwargs):
         """
         Create input file for TS search and return path to file.
         """
@@ -248,7 +241,7 @@ class ARD(object):
                                'output_dir'):
                     f.write('{0}  {1}\n'.format(key, val))
             f.write('\n')
-            f.write('geometry (\n0 {0}\n{1}\n****\n{2}\n)\n'.format(self.reactant.multiplicity, self.reactant, product))
+            f.write('geometry (\n0 {0}\n{1}\n****\n{2}\n)\n'.format(reactant.multiplicity, reactant, product))
 
         return path
 
@@ -260,7 +253,6 @@ class ARD(object):
         self.logger.info('#################### AUTOMATIC REACTION DISCOVERY ####################')
         self.logger.info('######################################################################')
         self.logger.info('Reactant SMILES: ' + self.reac_smi)
-        self.logger.info('Reactant coordinates:\n' + str(self.reactant))
         self.logger.info('Maximum number of bonds to be broken: ' + str(self.nbreak))
         self.logger.info('Maximum number of bonds to be formed: ' + str(self.nform))
         self.logger.info('Heat of reaction cutoff: {:.1f} kcal/mol'.format(self.dh_cutoff))
@@ -294,9 +286,9 @@ def readInput(input_file):
     A dictionary containing all input parameters and their values is returned.
     """
     # Allowed keywords
-    keys = ('reac_smi', 'nbreak', 'nform', 'dh_cutoff', 'forcefield', 'distance', 'logname',
+    keys = ('reac_smi', 'nbreak', 'nform', 'dh_cutoff', 'forcefield', 'logname',
             'nsteps', 'nnode', 'lsf', 'tol', 'gtol', 'nlstnodes',
-            'qprog', 'theory', 'theory_low', 'nproc', 'mem')
+            'qprog', 'theory', 'theory_low')
 
     # Read all data from file
     with open(input_file, 'r') as f:

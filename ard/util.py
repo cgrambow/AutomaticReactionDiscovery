@@ -189,24 +189,42 @@ def getDistMat(coords):
     dz = z[..., np.newaxis] - z[np.newaxis, ...]
     return np.triu((np.array([dx, dy, dz]) ** 2).sum(axis=0) ** 0.5)
 
-def rotationMatrix(angles):
+def rotationMatrix(angles, axis=None):
     """
     Calculates and returns the rotation matrix defined by three angles of
-    rotation about the x, y, and z axes.
+    rotation about the x, y, and z axes or one angle of rotation about a
+    given axis.
     """
-    Rx = np.array(
-        [[1.0, 0.0, 0.0],
-         [0.0, np.cos(angles[0]), -np.sin(angles[0])],
-         [0.0, np.sin(angles[0]), np.cos(angles[0])]]
-    )
-    Ry = np.array(
-        [[np.cos(angles[1]), 0.0, np.sin(angles[1])],
-         [0.0, 1.0, 0.0],
-         [-np.sin(angles[1]), 0.0, np.cos(angles[1])]]
-    )
-    Rz = np.array(
-        [[np.cos(angles[2]), -np.sin(angles[2]), 0.0],
-         [np.sin(angles[2]), np.cos(angles[2]), 0.0],
-         [0.0, 0.0, 1.0]]
-    )
-    return Rx.dot(Ry).dot(Rz)
+    if axis is None:
+        Rx = np.array(
+            [[1.0, 0.0, 0.0],
+             [0.0, np.cos(angles[0]), -np.sin(angles[0])],
+             [0.0, np.sin(angles[0]), np.cos(angles[0])]]
+        )
+        Ry = np.array(
+            [[np.cos(angles[1]), 0.0, np.sin(angles[1])],
+             [0.0, 1.0, 0.0],
+             [-np.sin(angles[1]), 0.0, np.cos(angles[1])]]
+        )
+        Rz = np.array(
+            [[np.cos(angles[2]), -np.sin(angles[2]), 0.0],
+             [np.sin(angles[2]), np.cos(angles[2]), 0.0],
+             [0.0, 0.0, 1.0]]
+        )
+        return Rx.dot(Ry).dot(Rz)
+    else:
+        axis = axis/np.sqrt(axis.dot(axis))
+        x, y, z = axis[0], axis[1], axis[2]
+        angle = angles
+        R = np.array(
+            [[np.cos(angle) + x ** 2 * (1 - np.cos(angle)),
+              x * y * (1 - np.cos(angle)) - z * np.sin(angle),
+              x * z * (1 - np.cos(angle))+y * np.sin(angle)],
+             [y * x * (1 - np.cos(angle))+z * np.sin(angle),
+              np.cos(angle) + y ** 2 * (1 - np.cos(angle)),
+              y * z * (1 - np.cos(angle)) - x * np.sin(angle)],
+             [z * x * (1 - np.cos(angle)) - y * np.sin(angle),
+              z * y * (1 - np.cos(angle)) + x * np.sin(angle),
+              np.cos(angle) + z ** 2 * (1 - np.cos(angle))]]
+        )
+        return R
