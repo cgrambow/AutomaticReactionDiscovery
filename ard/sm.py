@@ -129,7 +129,7 @@ class String(object):
         """
         Save the list of bond changes between reactant and product.
         """
-        prod_cmat = self.product.toConnectivity()
+        prod_cmat = self.product.toConnectivityMat()
         Rmat = prod_cmat - self.reac_cmat
         bc = np.transpose(np.nonzero(Rmat))
         bc = removeDuplicateBondChanges(bc)
