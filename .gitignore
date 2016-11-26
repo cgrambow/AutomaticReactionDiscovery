@@ -1,5 +1,6 @@
 # PyCharm folder
 .idea
+.idea/dictionaries
 
 # Compiled Python modules
 *.pyc

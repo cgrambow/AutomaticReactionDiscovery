@@ -2,13 +2,9 @@ reac_smi          OOCCC=O           # Reactant SMILES
 nbreak            3                 # Maximum number of bonds to be broken
 nform             3                 # Maximum number of bonds to be formed
 dH_cutoff         20                # Heat of reaction cutoff
-distance          3.5               # Initial distance between molecules
 nsteps            6                 # Number of gradient evaluations
 nnode             20                # Desired number of nodes
 lsf               0.7               # Line search factor
 tol               0.05              # Perpendicular gradient tolerance
 nLSTnodes         100               # Number of nodes for LST interpolation
-qprog             gau               # Program for quantum calculations
-theory            m062x/6-311++g**  # Level of theory for quantum calculations
-theory_low        pm6               # Low level of theory
-nproc             32                # Number of processors per job
+theory            b3lyp/6-31+G*     # Level of theory
