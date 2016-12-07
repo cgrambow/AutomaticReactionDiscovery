@@ -129,8 +129,14 @@ class TSSearch(object):
         """
         start_time = time.time()
         self.initialize()
+
         reac_opt_success = self.optimizeReactant()
+        if reac_opt_success:
+            reac_energy = self.reactant.energy
         prod_opt_success = self.optimizeProduct()
+        if prod_opt_success:
+            prod_energy = self.product.energy
+
         self.executeStringMethod()
 
         energy_max = self.fsm[0].energy
@@ -151,6 +157,7 @@ class TSSearch(object):
 
                 if reac_opt_success:
                     self.reactant = reac_opt
+                    reac_energy = self.reactant.energy
                     writeNode(self.reactant, 'reac', self.output_dir)
 
             if not correct_prod or not prod_opt_success:
@@ -159,17 +166,18 @@ class TSSearch(object):
 
                 if prod_opt_success:
                     self.product = prod_opt
+                    prod_energy = self.product.energy
                     writeNode(self.product, 'prod', self.output_dir)
 
             if reac_opt_success:
-                self.barrier = (self.ts.energy - self.reactant.energy) * constants.hartree_to_kcal_per_mol
+                self.barrier = (self.ts.energy - reac_energy) * constants.hartree_to_kcal_per_mol
 
-            if prod_opt_success:
-                self.dH = (self.product.energy - self.reactant.energy) * constants.hartree_to_kcal_per_mol
+                if prod_opt_success:
+                    self.dH = (prod_energy - reac_energy) * constants.hartree_to_kcal_per_mol
 
-        self.finalize(start_time, correct_prod)
+        self.finalize(start_time, correct_reac, correct_prod)
 
-    def finalize(self, start_time, correct_prod):
+    def finalize(self, start_time, correct_reac, correct_prod):
         """
         Finalize the job.
         """
@@ -182,11 +190,21 @@ class TSSearch(object):
 
         if self.barrier is not None:
             self.logger.info('Barrier height = {:.2f} kcal/mol'.format(self.barrier))
-        if self.dH is not None:
-            self.logger.info('Reaction energy = {:.2f} kcal/mol'.format(self.dH))
+        elif correct_reac:
+            self.barrier = (self.ts.energy - self.reactant.energy) * constants.hartree_to_kcal_per_mol
 
-            if not correct_prod:
-                self.logger.info('Note: Reaction energy is based on unintended product')
+            if self.irc is not None:
+                barrier_irc = (self.ts.energy - self.irc[0].energy) * constants.hartree_to_kcal_per_mol
+                self.barrier = max(self.barrier, barrier_irc)
+
+            self.logger.info('Barrier height (estimate) = {:.2f} kcal/mol'.format(self.barrier))
+
+        if self.dH is not None:
+            if self.dH < self.barrier:
+                self.logger.info('Reaction energy = {:.2f} kcal/mol'.format(self.dH))
+
+                if not correct_prod:
+                    self.logger.info('Note: Reaction energy is based on unintended product')
 
         self.logger.info('\nTS search terminated on ' + time.asctime())
         self.logger.info('Total TS search run time: {:.1f} s'.format(time.time() - start_time))
@@ -397,6 +415,7 @@ class TSSearch(object):
 
         if nimag != 1:
             self.logger.error('Number of imaginary frequencies is different than 1. Geometry is not a TS!')
+            self.logger.info('Total number of gradient evaluations: {}'.format(self.ngrad))
             raise TSError('TS search failed due to wrong number of imaginary frequencies')
 
         self.logger.info('Number of gradient evaluations during frequency calculation: {}\n'.format(ngrad))
@@ -451,6 +470,9 @@ class TSSearch(object):
         else:
             self.logger.warning('IRC check was unsuccessful. Wrong reactant and product!')
 
+        if np.array_equal(reac_cmat, prod_cmat):
+            self.logger.warning('Reactant and product are the same! Conformational saddle point was found.')
+
         reactant_smi = self.reactant.toSMILES()
         product_smi = self.product.toSMILES()
         irc_end_1_smi = self.irc[0].toSMILES()
@@ -495,6 +517,9 @@ class TSSearch(object):
                 path = q.getIRCpath()
                 ngrad = q.getNumGrad()
             except QuantumError as e:
+                self.logger.error('TS search failed reading IRC logfile: {}\n'.format(e))
+                self.barrier = (self.ts.energy - self.reactant.energy) * constants.hartree_to_kcal_per_mol
+                self.logger.info('Barrier height (estimate) = {:.2f} kcal/mol\n'.format(self.barrier))
                 self.logger.info('Total number of gradient evaluations: {}'.format(self.ngrad))
                 raise TSError('TS search failed reading IRC logfile: {}'.format(e))
 

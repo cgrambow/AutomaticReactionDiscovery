@@ -206,6 +206,9 @@ class String(object):
         self.logger.info('Total reactant to product arc length:   {0:>8.4f} Angstrom'.format(arclength))
         self.logger.info('Interpolation arc length for new nodes: {0:>8.4f} Angstrom'.format(self.node_spacing))
 
+        # Initialize gradient counter
+        self.ngrad = 0
+
         # Initialize path by adding reactant and product structures and computing their energies
         self.logger.info('Calculating reactant and product energies')
         path = [self.reactant, self.product]
@@ -214,9 +217,6 @@ class String(object):
         self.logger.info(
             'Reactant: {0:.9f} Hartree; Product: {1:.9f} Hartree'.format(self.reactant.energy, self.product.energy)
         )
-
-        # Initialize gradient counter
-        self.ngrad = 0
 
         return path
 

@@ -251,7 +251,7 @@ class Molecule(pybel.Molecule):
         for mol in self.mols:
             spc = mol.toRMGSpecies()
             spc.thermo = thermo_db.getThermoData(spc)
-            H298 += spc.thermo.H298.value_si / constants.kcal_to_J
+            H298 += spc.getEnthalpy(298.0) / constants.kcal_to_J
 
         # Return combined enthalpy of all molecules
         return H298
@@ -435,46 +435,49 @@ class Molecule(pybel.Molecule):
         # Extract bonds
         bonds = [[bond.GetBeginAtomIdx() - 1, bond.GetEndAtomIdx() - 1] for bond in pybel.ob.OBMolBondIter(self.OBMol)]
 
-        # Create first molecular fragment from first bond and start keeping track of atoms
-        molecules = [bonds[0][:]]
-        atoms_used = bonds[0][:]
+        if bonds:
+            # Create first molecular fragment from first bond and start keeping track of atoms
+            molecules = [bonds[0][:]]
+            atoms_used = bonds[0][:]
 
-        # Loop over remaining bonds
-        for bond in bonds[1:]:
-            ind1, ind2 = -1, -2
+            # Loop over remaining bonds
+            for bond in bonds[1:]:
+                ind1, ind2 = -1, -2
 
-            for idx, molecule in enumerate(molecules):
-                if bond[0] in molecule:
-                    ind1 = idx
-                if bond[1] in molecule:
-                    ind2 = idx
+                for idx, molecule in enumerate(molecules):
+                    if bond[0] in molecule:
+                        ind1 = idx
+                    if bond[1] in molecule:
+                        ind2 = idx
 
-            # Skip bond if both atoms are already contained in the same molecule
-            if ind1 == ind2:
-                continue
-            # Combine fragments if they are connected through bond
-            if ind1 != -1 and ind2 != -2:
-                molecules[ind1].extend(molecules[ind2])
-                del molecules[ind2]
-            # Add new atom to fragment if it is connected
-            elif ind1 != -1:
-                molecules[ind1].append(bond[1])
-                atoms_used.append(bond[1])
-            elif ind2 != -2:
-                molecules[ind2].append(bond[0])
-                atoms_used.append(bond[0])
-            # Add new fragment if it does not connect to any other ones
-            else:
-                molecules.append(bond)
-                atoms_used.extend(bond)
+                # Skip bond if both atoms are already contained in the same molecule
+                if ind1 == ind2:
+                    continue
+                # Combine fragments if they are connected through bond
+                if ind1 != -1 and ind2 != -2:
+                    molecules[ind1].extend(molecules[ind2])
+                    del molecules[ind2]
+                # Add new atom to fragment if it is connected
+                elif ind1 != -1:
+                    molecules[ind1].append(bond[1])
+                    atoms_used.append(bond[1])
+                elif ind2 != -2:
+                    molecules[ind2].append(bond[0])
+                    atoms_used.append(bond[0])
+                # Add new fragment if it does not connect to any other ones
+                else:
+                    molecules.append(bond)
+                    atoms_used.extend(bond)
 
-        # Add atoms that are not involved in bonds
-        for atom in range(len(self.atoms)):
-            if atom not in atoms_used:
-                molecules.append([atom])
+            # Add atoms that are not involved in bonds
+            for atom in range(len(self.atoms)):
+                if atom not in atoms_used:
+                    molecules.append([atom])
 
-        # Sort molecules and store result
-        self.mols_indices = tuple(sorted(molecule) for molecule in molecules)
+            # Sort molecules and store result
+            self.mols_indices = tuple(sorted(molecule) for molecule in molecules)
+        else:
+            self.mols_indices = tuple([atom] for atom in range(len(self.atoms)))
 
     def detRotors(self):
         """

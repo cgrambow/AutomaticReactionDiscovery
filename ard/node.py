@@ -116,6 +116,19 @@ class Node(object):
         new.gradient = self.gradient
         return new
 
+    def hasSameConnectivity(self, other):
+        """
+        Check if `self` has the same connectivity as `other`. Return `True` if
+        this is the case.
+        """
+        cmat = self.toConnectivityMat()
+        cmat_other = other.toConnectivityMat()
+
+        if np.array_equal(cmat, cmat_other):
+            return True
+        else:
+            return False
+
     def getXYZ(self):
         """
         Return a string of the node in the XYZ file format.
@@ -128,7 +141,7 @@ class Node(object):
         """
         mol = pybel.readstring('xyz', self.getXYZ())
 
-        # Detect hydrogen molecules separately, since Openbabel often does not create a bond for these
+        # Detect hydrogen molecules separately, since Open Babel often does not create a bond for these
         Hatoms = []
         for atom in mol:
             if atom.atomicnum == 1 and atom.OBAtom.BOSum() == 0:
