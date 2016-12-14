@@ -76,6 +76,7 @@ class String(object):
     =============== ======================== ===================================
     Attribute       Type                     Description
     =============== ======================== ===================================
+    `name`          ``str``                  The name of the object
     `reactant`      :class:`node.Node`       A node object containing the coordinates and atoms of the reactant molecule
     `product`       :class:`node.Node`       A node object containing the coordinates and atoms of the product molecule
     `reac_cmat`     :class:`numpy.ndarray`   The connectivity matrix of the reactant
@@ -95,12 +96,14 @@ class String(object):
 
     """
 
-    def __init__(self, reactant, product, logger=None,
+    def __init__(self, reactant, product, name='0000', logger=None,
                  nsteps=4, nnode=15, tol=0.1, nlstnodes=100, qprog='gau', **kwargs):
         if reactant.atoms != product.atoms:
             raise Exception('Atom labels of reactant and product do not match')
         self.reactant = reactant
         self.product = product
+        self.name = name
+
         self.reac_cmat = self.reactant.toConnectivityMat()
         self.bc = None
         self.findBondChanges()
@@ -121,7 +124,8 @@ class String(object):
         # Set up logger
         if logger is None:
             log_level = logging.INFO
-            self.logger = util.initializeLog(log_level, os.path.join(self.output_dir, 'FSM.log'))
+            logfile = 'output.' + self.name + '.log'
+            self.logger = util.initializeLog(log_level, os.path.join(self.output_dir, logfile))
         else:
             self.logger = logger
 
@@ -212,8 +216,8 @@ class String(object):
         # Initialize path by adding reactant and product structures and computing their energies
         self.logger.info('Calculating reactant and product energies')
         path = [self.reactant, self.product]
-        self.reactant.computeEnergy(self.Qclass, name='reac_energy', **self.kwargs)
-        self.product.computeEnergy(self.Qclass, name='prod_energy', **self.kwargs)
+        self.reactant.computeEnergy(self.Qclass, name='reac_energy.' + self.name, **self.kwargs)
+        self.product.computeEnergy(self.Qclass, name='prod_energy.' + self.name, **self.kwargs)
         self.logger.info(
             'Reactant: {0:.9f} Hartree; Product: {1:.9f} Hartree'.format(self.reactant.energy, self.product.energy)
         )
@@ -237,7 +241,7 @@ class String(object):
         Write the nodes along the path and their corresponding energies
         relative to the reactant energy (in kcal/mol) to the output file.
         """
-        with open(os.path.join(self.output_dir, 'string.out'), 'w') as f:
+        with open(os.path.join(self.output_dir, 'string.{}.out'.format(self.name)), 'w') as f:
             for node_num, node in enumerate(path):
                 f.write('Node ' + str(node_num + 1) + ':\n')
 
@@ -250,7 +254,7 @@ class String(object):
         Write the distance matrix at a node and check for undesired bond
         changes.
         """
-        with open(os.path.join(self.output_dir, 'bond_changes.out'), 'a') as f:
+        with open(os.path.join(self.output_dir, 'bond_changes.{}.out'.format(self.name)), 'a') as f:
             if msg is not None:
                 f.write(msg + '\n')
 
@@ -284,7 +288,7 @@ class String(object):
             return False
 
     @util.timeFn
-    def getPerpGrad(self, node, tangent, name='grad'):
+    def getPerpGrad(self, node, tangent, name='grad.0000'):
         """
         Calculate and return a tuple of the perpendicular gradient and its
         magnitude given a node and the string tangent. `name` is the name of
@@ -541,7 +545,7 @@ class FSM(String):
         min_desired_energy_change /= constants.hartree_to_kcal_per_mol
 
         # Calculate perpendicular gradient and set node energy
-        perp_grad, perp_grad_mag = self.getPerpGrad(node, tangent, name='grad0')
+        perp_grad, perp_grad_mag = self.getPerpGrad(node, tangent, name='grad.{}.0'.format(self.name))
         self.ngrad += 1
         energy_old = node.energy
 
@@ -580,7 +584,7 @@ class FSM(String):
 
             # Calculate new perpendicular gradient and set energy
             try:
-                perp_grad, perp_grad_mag = self.getPerpGrad(node, tangent, name='grad' + str(k))
+                perp_grad, perp_grad_mag = self.getPerpGrad(node, tangent, name='grad.{}.{}'.format(self.name, k))
             except QuantumError:
                 self.logger.info('SCF error ignored. Previous gradient used.')
                 grad_success = False

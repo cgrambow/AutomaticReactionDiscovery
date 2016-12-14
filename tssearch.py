@@ -70,6 +70,7 @@ class TSSearch(object):
     ============== ======================== ===================================
     Attribute      Type                     Description
     ============== ======================== ===================================
+    `name`         ``str``                  The name of the object and logger
     `reactant`     :class:`node.Node`       A node object containing the coordinates and atoms of the reactant molecule
     `product`      :class:`node.Node`       A node object containing the coordinates and atoms of the product molecule
     `ts`           :class:`node.Node`       The exact transition state
@@ -86,11 +87,12 @@ class TSSearch(object):
 
     """
 
-    def __init__(self, reactant, product, logname=None, **kwargs):
+    def __init__(self, reactant, product, name='0000', **kwargs):
         if reactant.atoms != product.atoms:
             raise Exception('Atom labels of reactant and product do not match')
         self.reactant = reactant
         self.product = product
+        self.name = name
 
         self.output_dir = kwargs.get('output_dir', '')
         qprog = kwargs.get('qprog', 'gau')
@@ -106,12 +108,8 @@ class TSSearch(object):
 
         # Set up log file
         log_level = logging.INFO
-        if logname is None:
-            filename = 'TSSearch.log'
-        else:
-            filename = logname + '.log'
-            self.__name__ = logname
-        self.logger = util.initializeLog(log_level, os.path.join(self.output_dir, filename), logname=logname)
+        filename = 'output.' + self.name + '.log'
+        self.logger = util.initializeLog(log_level, os.path.join(self.output_dir, filename), logname=self.name)
 
     def initialize(self):
         """
@@ -146,28 +144,28 @@ class TSSearch(object):
                 energy_max = node.energy
 
         self.executeExactTSSearch()
-        chkfile = os.path.join(self.output_dir, 'chkf.chk')
+        chkfile = os.path.join(self.output_dir, 'chkf.{}.chk'.format(self.name))
         self.computeFrequencies(chkfile)
         correct_reac, correct_prod = self.executeIRC(chkfile)
 
         if correct_reac:
             if not reac_opt_success:
                 reac = self.irc[0]
-                reac_opt, reac_opt_success = self.optimizeNode('irc_reac', reac)
+                reac_opt, reac_opt_success = self.optimizeNode('irc_reac.' + self.name, reac)
 
                 if reac_opt_success:
                     self.reactant = reac_opt
                     reac_energy = self.reactant.energy
-                    writeNode(self.reactant, 'reac', self.output_dir)
+                    writeNode(self.reactant, 'reac.' + self.name, self.output_dir)
 
             if not correct_prod or not prod_opt_success:
                 prod = self.irc[-1]
-                prod_opt, prod_opt_success = self.optimizeNode('irc_prod', prod)
+                prod_opt, prod_opt_success = self.optimizeNode('irc_prod.' + self.name, prod)
 
                 if prod_opt_success:
                     self.product = prod_opt
                     prod_energy = self.product.energy
-                    writeNode(self.product, 'prod', self.output_dir)
+                    writeNode(self.product, 'prod.' + self.name, self.output_dir)
 
             if reac_opt_success:
                 self.barrier = (self.ts.energy - reac_energy) * constants.hartree_to_kcal_per_mol
@@ -219,7 +217,7 @@ class TSSearch(object):
         `True` if successful, `False` otherwise.
         """
         success = True
-        name = 'reac_opt'
+        name = 'reac_opt.' + self.name
         reac_mol = self.reactant.toMolecule()
         reac_cmat = self.reactant.toConnectivityMat()
         reac_node = self.reactant.copy()
@@ -253,7 +251,7 @@ class TSSearch(object):
             self.reactant = reac_node
 
         if success:
-            writeNode(self.reactant, 'reac', self.output_dir)
+            writeNode(self.reactant, 'reac.' + self.name, self.output_dir)
 
         self.ngrad += ngrad
         return success
@@ -267,7 +265,7 @@ class TSSearch(object):
         `True` if successful, `False` otherwise.
         """
         success = True
-        name = 'prod_opt'
+        name = 'prod_opt.' + self.name
         prod_mol = self.product.toMolecule()
         prod_cmat = self.product.toConnectivityMat()
         prod_node = self.product.copy()
@@ -301,7 +299,7 @@ class TSSearch(object):
             self.product = prod_node
 
         if success:
-            writeNode(self.product, 'prod', self.output_dir)
+            writeNode(self.product, 'prod.' + self.name, self.output_dir)
 
         self.ngrad += ngrad
         return success
@@ -351,7 +349,7 @@ class TSSearch(object):
         """
         Run the string method with the options specified in `kwargs`.
         """
-        fsm = FSM(self.reactant, self.product, logger=self.logger, **self.kwargs)
+        fsm = FSM(self.reactant, self.product, name=self.name, logger=self.logger, **self.kwargs)
         try:
             self.fsm = fsm.execute()
         except QuantumError as e:
@@ -363,7 +361,7 @@ class TSSearch(object):
 
         self.ngrad += fsm.ngrad
 
-        filepath = os.path.join(self.output_dir, 'FSMpath.png')
+        filepath = os.path.join(self.output_dir, 'FSMpath.{}.png'.format(self.name))
         drawPath(self.fsm, filepath)
 
     @util.logStartAndFinish
@@ -372,7 +370,7 @@ class TSSearch(object):
         """
         Run the exact transition state search and update `self.ts`.
         """
-        name = 'TSopt'
+        name = 'TSopt.' + self.name
         self.logger.info('Initial TS structure:\n' + str(self.ts) + '\nEnergy = ' + str(self.ts.energy))
 
         try:
@@ -389,7 +387,7 @@ class TSSearch(object):
 
             raise TSError('TS search failed during exact TS search')
 
-        with open(os.path.join(self.output_dir, 'ts.out'), 'w') as f:
+        with open(os.path.join(self.output_dir, 'ts.{}.out'.format(self.name)), 'w') as f:
             f.write('Transition state:\n')
             f.write('Energy ({}) = {}\n'.format(self.kwargs['theory'].upper(), self.ts.energy))
             f.write(str(self.ts) + '\n')
@@ -407,7 +405,9 @@ class TSSearch(object):
         Run a frequency calculation using the exact TS geometry.
         """
         try:
-            nimag, ngrad = self.ts.computeFrequencies(self.Qclass, name='freq', chkfile=chkfile, **self.kwargs)
+            nimag, ngrad = self.ts.computeFrequencies(
+                self.Qclass, name='freq.' + self.name, chkfile=chkfile, **self.kwargs
+            )
         except QuantumError as e:
             self.logger.error('Frequency calculation did not succeed and terminated with the message: {}'.format(e))
             self.logger.info('Total number of gradient evaluations: {}'.format(self.ngrad))
@@ -432,8 +432,8 @@ class TSSearch(object):
         chkf_name, chkf_ext = os.path.splitext(chkfile)
         chkfile_copy = chkf_name + '_copy' + chkf_ext
         shutil.copyfile(chkfile, chkfile_copy)
-        forward_path, forward_ngrad = self._runOneDirectionalIRC('IRC_forward', 'forward', chkfile)
-        reverse_path, reverse_ngrad = self._runOneDirectionalIRC('IRC_reverse', 'reverse', chkfile_copy)
+        forward_path, forward_ngrad = self._runOneDirectionalIRC('IRC_forward.' + self.name, 'forward', chkfile)
+        reverse_path, reverse_ngrad = self._runOneDirectionalIRC('IRC_reverse.' + self.name, 'reverse', chkfile_copy)
         ngrad = forward_ngrad + reverse_ngrad
 
         # Check if endpoints correspond to reactant and product based on connectivity matrices
@@ -481,7 +481,7 @@ class TSSearch(object):
         self.logger.info('Reactant: {}\nProduct: {}\nIRC endpoint 1: {}\nIRC endpoint 2: {}'.
                          format(reactant_smi, product_smi, irc_end_1_smi, irc_end_2_smi))
 
-        with open(os.path.join(self.output_dir, 'irc.out'), 'w') as f:
+        with open(os.path.join(self.output_dir, 'irc.{}.out'.format(self.name)), 'w') as f:
             for node_num, node in enumerate(self.irc):
                 f.write('Node ' + str(node_num + 1) + ':\n')
                 f.write('Energy = ' + str(node.energy) + '\n')
@@ -491,7 +491,7 @@ class TSSearch(object):
         self.logger.info('\nNumber of gradient evaluations during IRC calculation: {}\n'.format(ngrad))
         self.ngrad += ngrad
 
-        filepath = os.path.join(self.output_dir, 'IRCpath.png')
+        filepath = os.path.join(self.output_dir, 'IRCpath.{}.png'.format(self.name))
         drawPath(self.irc, filepath)
 
         return correct_reac, correct_prod

@@ -193,10 +193,9 @@ class ARD(object):
                 product = mol.toNode()
 
                 rxn_num = '{:04d}'.format(rxn)
-                rxn_name = 'rxn' + rxn_num
                 output_dir = util.makeOutputSubdirectory(rxn_dir, rxn_num)
                 kwargs['output_dir'] = output_dir
-                kwargs['logname'] = rxn_name
+                kwargs['name'] = rxn_num
 
                 self.logger.info('Product {}: {}\n{}\n****\n{}\n'.format(rxn, product.toSMILES(), reactant, product))
                 self.makeInputFile(reactant, product, **kwargs)
@@ -286,7 +285,7 @@ def readInput(input_file):
     A dictionary containing all input parameters and their values is returned.
     """
     # Allowed keywords
-    keys = ('reac_smi', 'nbreak', 'nform', 'dh_cutoff', 'forcefield', 'logname',
+    keys = ('reac_smi', 'nbreak', 'nform', 'dh_cutoff', 'forcefield', 'name',
             'nsteps', 'nnode', 'lsf', 'tol', 'gtol', 'nlstnodes',
             'qprog', 'theory', 'theory_low')
 
