@@ -67,12 +67,12 @@ reaction channels.
 
 Each transition state search produces several files:
 
-* `rxn####.log`      - Log file
-* `reac.out`         - Optimized reactant
-* `prod.out`         - Optimized product (intended or unintended)
-* `ts.out`           - Optimized transition state
-* `string.out`       - Nodes along FSM string
-* `irc.out`          - Points along IRC path
+* `output.####.log`  - Log file
+* `reac.####.out`         - Optimized reactant
+* `prod.####.out`         - Optimized product (intended or unintended)
+* `ts.####.out`           - Optimized transition state
+* `string.####.out`       - Nodes along FSM string
+* `irc.####.out`          - Points along IRC path
 * `bond_changes.out` - Distance matrices during FSM steps
 * `FSMpath.png`      - Graph of FSM energies
 * `IRCpath.png`      - Graph of IRC energies

@@ -357,7 +357,7 @@ class Gaussian(Quantum):
                         raise Exception('Invalid IRC direction')
                     if g09path is not None:
                         f.write(
-                            '# irc=({},{},recalcfc=(predictor=18,corrector=10),maxpoints=60,'.format(direction, fc) +
+                            '# irc=({},{},recalcfc=(predictor=10,corrector=5),maxpoints=60,'.format(direction, fc) +
                             'stepsize=8,maxcycle=25) {} {} iop(1/7=300) nosymm test\n\n'.format(theory, dispersion)
                         )
                     else:

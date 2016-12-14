@@ -361,7 +361,7 @@ class TSSearch(object):
 
         self.ngrad += fsm.ngrad
 
-        filepath = os.path.join(self.output_dir, 'FSMpath.{}.png'.format(self.name))
+        filepath = os.path.join(self.output_dir, 'fsmpath.{}.png'.format(self.name))
         drawPath(self.fsm, filepath)
 
     @util.logStartAndFinish
@@ -370,7 +370,7 @@ class TSSearch(object):
         """
         Run the exact transition state search and update `self.ts`.
         """
-        name = 'TSopt.' + self.name
+        name = 'tsopt.' + self.name
         self.logger.info('Initial TS structure:\n' + str(self.ts) + '\nEnergy = ' + str(self.ts.energy))
 
         try:
@@ -387,10 +387,7 @@ class TSSearch(object):
 
             raise TSError('TS search failed during exact TS search')
 
-        with open(os.path.join(self.output_dir, 'ts.{}.out'.format(self.name)), 'w') as f:
-            f.write('Transition state:\n')
-            f.write('Energy ({}) = {}\n'.format(self.kwargs['theory'].upper(), self.ts.energy))
-            f.write(str(self.ts) + '\n')
+        writeNode(self.reactant, 'ts.' + self.name, self.output_dir)
 
         self.logger.info('Optimized TS structure:\n{}\nEnergy ({}) = {}'.format(self.ts,
                                                                                 self.kwargs['theory'].upper(),
@@ -432,8 +429,8 @@ class TSSearch(object):
         chkf_name, chkf_ext = os.path.splitext(chkfile)
         chkfile_copy = chkf_name + '_copy' + chkf_ext
         shutil.copyfile(chkfile, chkfile_copy)
-        forward_path, forward_ngrad = self._runOneDirectionalIRC('IRC_forward.' + self.name, 'forward', chkfile)
-        reverse_path, reverse_ngrad = self._runOneDirectionalIRC('IRC_reverse.' + self.name, 'reverse', chkfile_copy)
+        forward_path, forward_ngrad = self._runOneDirectionalIRC('irc_forward.' + self.name, 'forward', chkfile)
+        reverse_path, reverse_ngrad = self._runOneDirectionalIRC('irc_reverse.' + self.name, 'reverse', chkfile_copy)
         ngrad = forward_ngrad + reverse_ngrad
 
         # Check if endpoints correspond to reactant and product based on connectivity matrices
@@ -483,7 +480,7 @@ class TSSearch(object):
 
         with open(os.path.join(self.output_dir, 'irc.{}.out'.format(self.name)), 'w') as f:
             for node_num, node in enumerate(self.irc):
-                f.write('Node ' + str(node_num + 1) + ':\n')
+                f.write(str(len(node.atoms)) + '\n')
                 f.write('Energy = ' + str(node.energy) + '\n')
                 f.write(str(node) + '\n')
 
@@ -491,7 +488,7 @@ class TSSearch(object):
         self.logger.info('\nNumber of gradient evaluations during IRC calculation: {}\n'.format(ngrad))
         self.ngrad += ngrad
 
-        filepath = os.path.join(self.output_dir, 'IRCpath.{}.png'.format(self.name))
+        filepath = os.path.join(self.output_dir, 'ircpath.{}.png'.format(self.name))
         drawPath(self.irc, filepath)
 
         return correct_reac, correct_prod
@@ -570,7 +567,7 @@ def writeNode(node, name, out_dir):
     Write node geometry to file.
     """
     with open(os.path.join(out_dir, name + '.out'), 'w') as f:
-        f.write(name + '\n')
+        f.write(str(len(node.atoms)) + '\n')
         f.write('Energy = {}\n'.format(node.energy))
         f.write(str(node) + '\n')
 

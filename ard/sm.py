@@ -243,7 +243,7 @@ class String(object):
         """
         with open(os.path.join(self.output_dir, 'string.{}.out'.format(self.name)), 'w') as f:
             for node_num, node in enumerate(path):
-                f.write('Node ' + str(node_num + 1) + ':\n')
+                f.write(str(len(node.atoms)) + '\n')
 
                 energy = (node.energy - self.reactant.energy) * constants.hartree_to_kcal_per_mol
                 f.write('Energy = ' + str(energy) + '\n')
