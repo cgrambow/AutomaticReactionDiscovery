@@ -324,22 +324,14 @@ class Node(object):
 
         return ngrad
 
-    def getIRCpath(self, Qclass, direction='forward', freq=True, chkfile=None, **kwargs):
+    def getIRCpath(self, Qclass, direction='forward', chkfile=None, **kwargs):
         """
         Execute an IRC path calculation in the given direction assuming that
         the current node geometry corresponds to a transition state. A list of
         :class:`node.Node` objects (with coordinates and energies) representing
         the nodes along the IRC path, and the number of gradient evaluations
         are returned. The transition state node is included in the IRC path.
-
-        Note: If `freq` is set to False, a frequency calculation has to have
-        been completed previously.
         """
-        if freq:
-            if chkfile is None:
-                chkfile = 'chkf.chk'
-            self.computeFrequencies(Qclass, name='freq', chkfile=chkfile, **kwargs)
-
         q = Qclass(chkfile=chkfile)
         q.executeJob(self, jobtype='irc', direction=direction, **kwargs)
         path = q.getIRCpath()

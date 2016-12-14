@@ -338,10 +338,12 @@ class Gaussian(Quantum):
         try:
             input_file = os.path.join(output_dir, name + '.com')
             with open(input_file, 'w') as f:
-                fc = 'calcfc'
                 if self.chkfile is not None:
                     f.write('%chk=' + self.chkfile + '\n')
+                if os.path.exists(self.chkfile):
                     fc = 'rcfc'
+                else:
+                    fc = 'calcfc'
                 f.write('%mem=' + mem + '\n')
                 f.write('%nprocshared=' + str(int(nproc)) + '\n')
                 if jobtype == 'opt':

@@ -387,7 +387,7 @@ class TSSearch(object):
 
             raise TSError('TS search failed during exact TS search')
 
-        writeNode(self.reactant, 'ts.' + self.name, self.output_dir)
+        writeNode(self.ts, 'ts.' + self.name, self.output_dir)
 
         self.logger.info('Optimized TS structure:\n{}\nEnergy ({}) = {}'.format(self.ts,
                                                                                 self.kwargs['theory'].upper(),
@@ -397,7 +397,7 @@ class TSSearch(object):
 
     @util.logStartAndFinish
     @util.timeFn
-    def computeFrequencies(self, chkfile):
+    def computeFrequencies(self, chkfile=None):
         """
         Run a frequency calculation using the exact TS geometry.
         """
@@ -420,15 +420,19 @@ class TSSearch(object):
 
     @util.logStartAndFinish
     @util.timeFn
-    def executeIRC(self, chkfile):
+    def executeIRC(self, chkfile=None):
         """
         Run an IRC calculation using the exact TS geometry and save the path to
         `self.irc`. Return two booleans indicating whether or not the correct
         reactant and product were found.
         """
-        chkf_name, chkf_ext = os.path.splitext(chkfile)
-        chkfile_copy = chkf_name + '_copy' + chkf_ext
-        shutil.copyfile(chkfile, chkfile_copy)
+        if chkfile is not None and os.path.exists(chkfile):
+            chkf_name, chkf_ext = os.path.splitext(chkfile)
+            chkfile_copy = chkf_name + '_copy' + chkf_ext
+            shutil.copyfile(chkfile, chkfile_copy)
+        else:
+            chkfile_copy = None
+
         forward_path, forward_ngrad = self._runOneDirectionalIRC('irc_forward.' + self.name, 'forward', chkfile)
         reverse_path, reverse_ngrad = self._runOneDirectionalIRC('irc_reverse.' + self.name, 'reverse', chkfile_copy)
         ngrad = forward_ngrad + reverse_ngrad
@@ -502,7 +506,7 @@ class TSSearch(object):
         """
         try:
             ircpath, ngrad = self.ts.getIRCpath(
-                self.Qclass, name=name, direction=direction, freq=False, chkfile=chkfile, **self.kwargs
+                self.Qclass, name=name, direction=direction, chkfile=chkfile, **self.kwargs
             )
         except QuantumError as e:
             self.logger.warning(

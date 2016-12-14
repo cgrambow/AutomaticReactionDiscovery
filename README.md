@@ -37,6 +37,7 @@ The possible arguments are:
 * `nLSTnodes`      - Number of high density LST nodes
 * `qprog`          - Program for quantum calculations (currently only `gau`)
 * `theory`         - Level of theory (e.g., m062x/cc-pvtz)
+* `name`           - Name of the log file for a TS search
 
 Only `reac_smi` has to be specified for a full automatic discovery, all other
 arguments have default values or are set by running `ard.py`.
@@ -52,6 +53,7 @@ Default values are:
 * `nLSTnodes` = 100
 * `qprog` = gau
 * `theory` = m062x/cc-pvtz
+* `name` = 0000
 
 The input file arguments can be specified in any order and comments can be
 added. An example is given in _input.txt_. If a freezing string method or
@@ -68,14 +70,14 @@ reaction channels.
 Each transition state search produces several files:
 
 * `output.####.log`  - Log file
-* `reac.####.out`         - Optimized reactant
-* `prod.####.out`         - Optimized product (intended or unintended)
-* `ts.####.out`           - Optimized transition state
-* `string.####.out`       - Nodes along FSM string
-* `irc.####.out`          - Points along IRC path
+* `reac.####.out`    - Optimized reactant
+* `prod.####.out`    - Optimized product (intended or unintended)
+* `ts.####.out`      - Optimized transition state
+* `string.####.out`  - Nodes along FSM string
+* `irc.####.out`     - Points along IRC path
 * `bond_changes.out` - Distance matrices during FSM steps
-* `FSMpath.png`      - Graph of FSM energies
-* `IRCpath.png`      - Graph of IRC energies
+* `fsmpath.####.png` - Graph of FSM energies
+* `ircpath.####.png` - Graph of IRC energies
 
 There are also several Gaussian input, log, and checkpoint files that are
 written and rewritten over the course of the calculation.
