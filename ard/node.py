@@ -299,6 +299,8 @@ class Node(object):
         """
         q = Qclass(chkfile=chkfile)
         q.executeJob(self, jobtype='freq', **kwargs)
+        self.energy = q.getEnergy()
+        self.gradient = q.getGradient()
         nimag = q.getNumImaginaryFrequencies()
         ngrad = q.getNumGrad()
 
