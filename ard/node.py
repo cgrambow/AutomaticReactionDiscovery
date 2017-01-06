@@ -40,6 +40,7 @@ import sys
 
 import numpy as np
 import pybel
+import rmgpy.molecule
 
 import props
 import gen3D
@@ -172,6 +173,15 @@ class Node(object):
         """
         mol = self.toPybelMol()
         mol = gen3D.Molecule(mol.OBMol)
+        return mol
+
+    def toRMGMolecule(self):
+        """
+        Convert node to a :class:`rmgpy.molecule.Molecule` object.
+        """
+        mol = self.toMolecule()
+        adjlist = mol.toAdjlist()
+        mol = rmgpy.molecule.Molecule().fromAdjacencyList(adjlist)
         return mol
 
     def toSMILES(self):
