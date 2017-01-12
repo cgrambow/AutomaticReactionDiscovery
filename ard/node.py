@@ -147,6 +147,8 @@ class Node(object):
         for atom in mol:
             if atom.atomicnum == 1 and atom.OBAtom.BOSum() == 0:
                 Hatoms.append(atom)
+            elif atom.spin == 3 and self.multiplicity == 1:
+                atom.OBAtom.SetSpinMultiplicity(1)
 
         if len(Hatoms) > 1:
             potential_Hmols = [[Hatom1, Hatom2]
@@ -161,6 +163,8 @@ class Node(object):
 
                 if distance <= 1.05:
                     mol.OBMol.AddBond(potential_Hmol[0].idx, potential_Hmol[1].idx, 1)
+                    potential_Hmol[0].OBAtom.SetSpinMultiplicity(0)
+                    potential_Hmol[1].OBAtom.SetSpinMultiplicity(0)
 
         mol.OBMol.SetTotalSpinMultiplicity(self.multiplicity)
         if self.energy is not None:
