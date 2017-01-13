@@ -43,6 +43,7 @@ from scipy import optimize
 import pybel
 from rmgpy import settings
 from rmgpy.species import Species
+import rmgpy.molecule
 from rmgpy.data.thermo import ThermoDatabase
 
 import constants
@@ -120,6 +121,13 @@ class Molecule(pybel.Molecule):
         self.atom_in_rotor = None
         self.close_atoms = None
 
+    def __getitem__(self, item):
+        for atom in self:
+            if item == atom.idx:
+                return atom
+        else:
+            raise IndexError('index out of range')
+
     def copy(self):
         """
         Create copy of `self`. The copy is somewhat reduced in that it only
@@ -195,6 +203,15 @@ class Molecule(pybel.Molecule):
         spc = Species().fromAdjacencyList(adjlist)
         spc.label = ''
         return spc
+
+    def toRMGMolecule(self):
+        """
+        Convert to :class:`rmgpy.molecule.Molecule` object and return the
+        object.
+        """
+        adjlist = self.toAdjlist()
+        mol = rmgpy.molecule.Molecule().fromAdjacencyList(adjlist)
+        return mol
 
     def assignSpinMultiplicity(self):
         """

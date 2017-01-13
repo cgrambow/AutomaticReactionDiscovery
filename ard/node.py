@@ -184,9 +184,7 @@ class Node(object):
         Convert node to a :class:`rmgpy.molecule.Molecule` object.
         """
         mol = self.toMolecule()
-        adjlist = mol.toAdjlist()
-        mol = rmgpy.molecule.Molecule().fromAdjacencyList(adjlist)
-        return mol
+        return mol.toRMGMolecule()
 
     def toSMILES(self):
         """
