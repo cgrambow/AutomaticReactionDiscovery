@@ -47,3 +47,6 @@ valenceelec = {1: 1, 6: 4, 7: 5, 8: 6, 9: 7, 14: 4, 15: 5, 16: 6, 17: 7, 35: 7}
 
 # Maximum valences of atoms
 maxvalences = {1: 1, 6: 4, 7: 3, 8: 2, 9: 1, 14: 4, 15: 5, 16: 6, 17: 7, 35: 7}
+
+# Covalent radii in Angstrom (from the Cambridge Structural Database)
+covrad = {1: 0.31, 6: 0.73, 7: 0.71, 8: 0.66, 9: 0.57, 14: 1.11, 15: 1.07, 16: 1.05, 17: 1.02, 35: 1.2}

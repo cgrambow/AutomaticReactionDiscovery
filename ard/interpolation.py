@@ -74,16 +74,16 @@ class CartesianInterp(object):
         Generates a node at fractional distance, `f`, between start and end
         nodes computed using simple Cartesian interpolation.
         """
-        return Node(self.node_start.coordinates + f * (self.node_end.coordinates - self.node_start.coordinates),
+        return Node(self.node_start.coords + f * (self.node_end.coords - self.node_start.coords),
                     self.node_start.atoms, self.node_start.multiplicity)
 
     def getCartNodeAtDistance(self, distance):
         """
         Generates a node at a specified distance from `node_start`.
         """
-        diff = self.node_end.coordinates.flatten() - self.node_start.coordinates.flatten()
+        diff = self.node_end.coords.flatten() - self.node_start.coords.flatten()
         dist_factor = diff / (diff.dot(diff)) ** 0.5
-        return Node(self.node_start.coordinates.flatten() + distance * dist_factor,
+        return Node(self.node_start.coords.flatten() + distance * dist_factor,
                     self.node_start.atoms, self.node_start.multiplicity)
 
 ###############################################################################
@@ -107,8 +107,8 @@ class LST(CartesianInterp):
     def __init__(self, node_start, node_end, nproc=1):
         super(LST, self).__init__(node_start, node_end)
         self.nproc = nproc
-        self.node_start_r = util.getDistMat(node_start.coordinates)
-        self.node_end_r = util.getDistMat(node_end.coordinates)
+        self.node_start_r = util.getDistMat(node_start.coords)
+        self.node_end_r = util.getDistMat(node_end.coords)
 
     def LSTobjective(self, w, f):
         """
@@ -120,8 +120,8 @@ class LST(CartesianInterp):
         """
         # Compute interpolated coordinates based on fraction along LST path
         r_interpolated = self.node_start_r + f * (self.node_end_r - self.node_start_r)
-        w_interpolated = self.node_start.coordinates.flatten() + f * (self.node_end.coordinates.flatten() -
-                                                                      self.node_start.coordinates.flatten())
+        w_interpolated = self.node_start.coords.flatten() + f * (self.node_end.coords.flatten() -
+                                                                 self.node_start.coords.flatten())
         r = util.getDistMat(w)
 
         distance_term = 0.0
@@ -138,8 +138,8 @@ class LST(CartesianInterp):
         containing the optimized Cartesian coordinates is returned.
         """
         # Start with Cartesian interpolation guess
-        w_guess = self.node_start.coordinates.flatten() + f * (self.node_end.coordinates.flatten() -
-                                                               self.node_start.coordinates.flatten())
+        w_guess = self.node_start.coords.flatten() + f * (self.node_end.coords.flatten() -
+                                                          self.node_start.coords.flatten())
         # Compute LST node by minimizing objective function
         result = optimize.minimize(self.LSTobjective, w_guess, args=(f,), method='BFGS', options={'gtol': 1e-3})
         if not result.success:

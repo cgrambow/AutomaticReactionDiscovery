@@ -370,7 +370,7 @@ class Gaussian(Quantum):
                 f.write(name + '\n\n')
                 f.write('0 ' + str(node.multiplicity) + '\n')
 
-                for atom_num, atom in enumerate(node.coordinates):
+                for atom_num, atom in enumerate(node.coords):
                     f.write(' {0}              {1[0]: 14.8f}{1[1]: 14.8f}{1[2]: 14.8f}\n'.format(
                         props.atomnum[node.atoms[atom_num]], atom))
                 f.write('\n')

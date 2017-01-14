@@ -40,10 +40,43 @@ import sys
 
 import numpy as np
 import pybel
-import rmgpy.molecule
 
 import props
 import gen3D
+
+###############################################################################
+
+class Atom(object):
+    """
+    An atom with coordinates.
+    The attributes are:
+
+    =============== ======================= ===================================
+    Attribute       Type                    Description
+    =============== ======================= ===================================
+    `atomicnum`     ``int``                 The atomic number of the atom
+    `coords`        :class:`numpy.ndarray`  A 1 x 3 array containing the coordinates of the atom (in Angstrom)
+    `idx`           ``int``                 The index of the atom
+    =============== ======================= ===================================
+    """
+
+    def __init__(self, atomicnum, coords, idx):
+        if isinstance(atomicnum, basestring):
+            if atomicnum.upper() in props.atomnum.values():
+                self.atomicnum = props.atomnum_inv[atomicnum]
+        elif int(atomicnum) not in props.atomnum.keys():
+            raise ValueError('Invalid atomic number or symbol: {0}'.format(atomicnum))
+        else:
+            self.atomicnum = int(atomicnum)
+
+        self.coords = np.array(coords)
+        if len(self.coords) > 3:
+            raise Exception('Atom has more than three coordinates')
+
+        self.idx = int(idx)
+
+    @property
+    def covrad(self): return props.covrad[self.atomicnum]
 
 ###############################################################################
 
@@ -55,7 +88,7 @@ class Node(object):
     =============== ======================= ===================================
     Attribute       Type                    Description
     =============== ======================= ===================================
-    `coordinates`   :class:`numpy.ndarray`  An N x 3 array containing the 3D coordinates of each atom (in Angstrom)
+    `coords`        :class:`numpy.ndarray`  An N x 3 array containing the 3D coordinates of each atom (in Angstrom)
     `atoms`         ``list``                A list of length N containing the integer atomic number of each atom
     `multiplicity`  ``int``                 The multiplicity of this species, multiplicity = 2*total_spin+1
     `masses`        ``list``                A list of length N containing the masses of each atom
@@ -67,9 +100,9 @@ class Node(object):
     array represents one atom.
     """
 
-    def __init__(self, coordinates, atoms, multiplicity=1):
+    def __init__(self, coords, atoms, multiplicity=1):
         try:
-            self.coordinates = np.array(coordinates).reshape(len(atoms), 3)
+            self.coords = np.array(coords).reshape(len(atoms), 3)
         except ValueError:
             print('One or more atoms are missing a coordinate', file=sys.stderr)
             raise
@@ -96,7 +129,7 @@ class Node(object):
         Return a human readable string representation of the object.
         """
         return_string = ''
-        for anum, atom in enumerate(self.coordinates):
+        for anum, atom in enumerate(self.coords):
             return_string += '{0}  {1[0]: 14.8f}{1[1]: 14.8f}{1[2]: 14.8f}\n'.format(
                 props.atomnum[self.atoms[anum]], atom)
         return return_string[:-1]
@@ -105,13 +138,13 @@ class Node(object):
         """
         Return a representation of the object.
         """
-        return 'Node({coords}, {self.atoms}, {self.multiplicity})'.format(coords=self.coordinates.tolist(), self=self)
+        return 'Node({coords}, {self.atoms}, {self.multiplicity})'.format(coords=self.coords.tolist(), self=self)
 
     def copy(self):
         """
         Create copy of `self`.
         """
-        new = Node(self.coordinates, self.atoms, self.multiplicity)
+        new = Node(self.coords, self.atoms, self.multiplicity)
         new.masses = self.masses
         new.energy = self.energy
         new.gradient = self.gradient
@@ -135,6 +168,53 @@ class Node(object):
         Return a string of the node in the XYZ file format.
         """
         return str(len(self.atoms)) + '\n\n' + str(self)
+
+    def getListOfAtoms(self):
+        """
+        Make and return a list of `Atom` objects corresponding to the atoms in
+        the node.
+        """
+        atoms = []
+        for idx, (anum, coord) in enumerate(zip(self.atoms, self.coords)):
+            atom = Atom(anum, coord, idx)
+            atoms.append(atom)
+        return atoms
+
+    def getBonds(self):
+        """
+        Return a list of bonds of the structure. Each bond is a tuple of the
+        two atom indices and the bond order (here only single bonds).
+        """
+        atoms = self.getListOfAtoms()
+        bonds = []
+
+        # Ensure there are coordinates to work with
+        for atom in atoms:
+            assert len(atom.coords) != 0
+
+        # Sort atoms by distance on the z-axis
+        sortedAtoms = sorted(atoms, key=lambda x: x.coords[2])
+
+        for i, atom1 in enumerate(sortedAtoms):
+            for atom2 in sortedAtoms[i + 1:]:
+                # Set upper limit for bond distance
+                criticalDistance = (atom1.covrad + atom2.covrad + 0.45) ** 2
+
+                # First atom that is more than 4.0 Angstroms away in the z-axis, break the loop
+                # Atoms are sorted along the z-axis, so all following atoms should be even further
+                zBoundary = (atom1.coords[2] - atom2.coords[2]) ** 2
+                if zBoundary > 16.0:
+                    break
+
+                distanceSquared = sum((atom1.coords - atom2.coords) ** 2)
+
+                if distanceSquared > criticalDistance or distanceSquared < 0.40:
+                    continue
+                else:
+                    bond = (atom1.idx, atom2.idx, 1)
+                    bonds.append(bond)
+
+        return bonds
 
     def toPybelMol(self):
         """
@@ -244,7 +324,7 @@ class Node(object):
         Compute and return non-mass weighted centroid of molecular
         configuration.
         """
-        return self.coordinates.sum(axis=0) / len(self.atoms)
+        return self.coords.sum(axis=0) / len(self.atoms)
 
     def getCenterOfMass(self, atoms=None):
         """
@@ -255,7 +335,7 @@ class Node(object):
         if atoms is None:
             atoms = range(len(self.masses))
         mass = self.getTotalMass(atoms=atoms)
-        center = sum([self.masses[atom] * self.coordinates[atom] for atom in atoms])
+        center = sum([self.masses[atom] * self.coords[atom] for atom in atoms])
         return center / mass
 
     def translate(self, trans_vec):
@@ -263,14 +343,14 @@ class Node(object):
         Translate all atoms in the molecular configuration by `trans_vec`,
         which is of type :class:`numpy.ndarray` and of size 3 x 1.
         """
-        self.coordinates += trans_vec
+        self.coords += trans_vec
 
     def displaceCoordinates(self, mod_array):
         """
         Displaces the coordinates by adding the N x 3 :class:`numpy.ndarray`
         to the current coordinates.
         """
-        self.coordinates += mod_array
+        self.coords += mod_array
 
     def rotate(self, rot_mat):
         """
@@ -280,7 +360,7 @@ class Node(object):
         The node should first be translated to the origin, since rotation
         matrices can only describe rotations about the origin.
         """
-        self.coordinates = (rot_mat.dot(self.coordinates.T)).T
+        self.coords = (rot_mat.dot(self.coords.T)).T
 
     def computeEnergy(self, Qclass, **kwargs):
         """
@@ -332,7 +412,7 @@ class Node(object):
             q.executeJob(self, jobtype='opt', **kwargs)
         self.energy = q.getEnergy()
         self.gradient = q.getGradient()
-        self.coordinates = q.getGeometry()
+        self.coords = q.getGeometry()
         ngrad = q.getNumGrad()
         q.clearChkfile()
 
@@ -367,8 +447,8 @@ class Node(object):
         """
         if other is None:
             return -1
-        assert np.size(self.coordinates) == np.size(other.coordinates)
-        diff = self.coordinates.flatten() - other.coordinates.flatten()
+        assert np.size(self.coords) == np.size(other.coords)
+        diff = self.coords.flatten() - other.coords.flatten()
         return diff.dot(diff) ** 0.5
 
     def getTangent(self, other):
@@ -377,8 +457,8 @@ class Node(object):
         straight line path between the nodes. The tangent vector points from
         `self` to `other`, which are both of type :class:`node.Node`.
         """
-        self_coord_vec = self.coordinates.flatten()
-        other_coord_vec = other.coordinates.flatten()
+        self_coord_vec = self.coords.flatten()
+        other_coord_vec = other.coords.flatten()
         assert len(self_coord_vec) == len(other_coord_vec)
         diff = other_coord_vec - self_coord_vec
         return diff / np.linalg.norm(diff)

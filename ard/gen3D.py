@@ -81,6 +81,8 @@ def makeMolFromAtomsAndBonds(atoms, bonds, spin=None):
         a.SetAtomicNum(atomicnum)
         OBMol.AddAtom(a)
     for bond in bonds:
+        if len(bond) != 3:
+            raise Exception('Bond must be specified by two indices and a bond order')
         OBMol.AddBond(bond[0] + 1, bond[1] + 1, bond[2])
 
     mol.assignSpinMultiplicity()
@@ -123,7 +125,7 @@ class Molecule(pybel.Molecule):
 
     def __getitem__(self, item):
         for atom in self:
-            if item == atom.idx:
+            if item == atom.idx - 1:
                 return atom
         else:
             raise IndexError('index out of range')
@@ -690,11 +692,11 @@ class Arrange3D(object):
             coords_2 = self.newCoords(self.mol_2.mols, self.nodes_2, result.x[self.dof_1:])
 
             for i in range(0, len(self.mol_1.mols)):
-                self.nodes_1[i].coordinates = coords_1[i]
+                self.nodes_1[i].coords = coords_1[i]
                 self.mol_1.mols[i].setCoordsFromMol(self.nodes_1[i].toPybelMol())
 
             for i in range(0, len(self.mol_2.mols)):
-                self.nodes_2[i].coordinates = coords_2[i]
+                self.nodes_2[i].coords = coords_2[i]
                 self.mol_2.mols[i].setCoordsFromMol(self.nodes_2[i].toPybelMol())
 
             if len(self.mol_1.mols) > 1:
@@ -715,7 +717,7 @@ class Arrange3D(object):
         for n in nodes:
             disp = n.getCentroid()
             n.translate(-disp)
-            coords = n.coordinates
+            coords = n.coords
             max_distance = 0.0
             for coord in coords:
                 distance = np.sqrt(coord.dot(coord))
@@ -890,7 +892,7 @@ class Arrange3D(object):
 
         for i in range(0, nmols):
             mol = mols[i]
-            coords = nodes[i].coordinates
+            coords = nodes[i].coords
             for j in range(len(mol.rotors)):
                 coords = self.rotateRotor(coords, tort_disps[nrots], mol.rotors[j], mol.atom_in_rotor[j])
                 nrots += 1

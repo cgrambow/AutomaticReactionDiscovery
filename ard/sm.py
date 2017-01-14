@@ -149,8 +149,8 @@ class String(object):
         corresponds to the angle of rotation about the x-axis, etc.). The objective
         function is a measure of the "distance" between reactant and product.
         """
-        rotated_product = (util.rotationMatrix(angles).dot(self.product.coordinates.T)).T.flatten()
-        diff = self.reactant.coordinates.flatten() - rotated_product
+        rotated_product = (util.rotationMatrix(angles).dot(self.product.coords.T)).T.flatten()
+        diff = self.reactant.coords.flatten() - rotated_product
         return diff.dot(diff)
 
     def align(self):
@@ -258,7 +258,7 @@ class String(object):
             if msg is not None:
                 f.write(msg + '\n')
 
-            dist_mat = util.getDistMat(node.coordinates)
+            dist_mat = util.getDistMat(node.coords)
 
             dmat_string = ''
             for anum, row in enumerate(dist_mat):
