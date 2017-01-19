@@ -33,7 +33,6 @@ Contains the :class:`Generate` for generating product structures.
 """
 
 import pybel
-from rmgpy.molecule import Molecule
 
 import props
 import gen3D
@@ -125,18 +124,12 @@ class Generate(object):
 
         # Convert all products to Molecule objects and append to list of product molecules
         if products_bonds:
-            reac_rmg_mol = Molecule().fromSMILES(self.reac_smi)
+            reac_rmg_mol = self.reac_mol.toRMGMolecule()
             for bonds in products_bonds:
                 mol = gen3D.makeMolFromAtomsAndBonds(self.atoms, bonds, spin=self.reac_mol.spin)
                 mol.setCoordsFromMol(self.reac_mol)
 
-                # Only append if product molecule is not the same as reactant
-                # prod_smi = mol.write('smi').strip()
-                prod_smi = mol.write('can').strip()
-                if prod_smi == 'O.C.[OH]':
-                    print 'hi'
-
-                prod_rmg_mol = Molecule().fromSMILES(prod_smi)
+                prod_rmg_mol = mol.toRMGMolecule()
                 if not prod_rmg_mol.isIsomorphic(reac_rmg_mol):
                     self.prod_mols.append(mol)
 
