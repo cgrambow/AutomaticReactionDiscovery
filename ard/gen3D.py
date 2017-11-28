@@ -182,8 +182,11 @@ class Molecule(pybel.Molecule):
             if spin == 0:
                 spin = 1
             unpaired = spin - 1
-            pairs = (props.valenceelec[atom.atomicnum] - atom.OBAtom.BOSum() - unpaired) // 2
             charge = atom.formalcharge
+            pairs = (props.valenceelec[atom.atomicnum] - atom.OBAtom.BOSum() - unpaired - charge) // 2
+
+            if charge > 0:
+                charge = '+' + str(charge)
 
             bondlist = ''
             for bond in pybel.ob.OBAtomBondIter(atom.OBAtom):
