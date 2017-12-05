@@ -274,8 +274,11 @@ class Gaussian(Quantum):
                 coord_mat = self._formatArray(self.output[line_num + 5:line_num + 5 + natoms])
             elif 'SCF Done' in line:
                 energy = float(line.split()[4])
+            elif 'Forces (Hartrees/Bohr)' in line:
+                force_mat_str = self.output[line_num + 3:line_num + 3 + natoms]
+                gradient = - self._formatArray(force_mat_str) / constants.bohr_to_ang
             elif 'NET REACTION COORDINATE UP TO THIS POINT' in line:
-                path.append((coord_mat, energy))
+                path.append((coord_mat, energy, gradient))
 
         if not path:
             raise QuantumError('IRC path is too short')
