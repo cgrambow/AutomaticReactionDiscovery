@@ -17,12 +17,12 @@ import pybel
 from rmgpy import settings
 from rmgpy.data.thermo import ThermoDatabase
 
-import constants
-import gen3D
-import util
-from quantum import QuantumError
-from node import Node
-from pgen import Generate
+import ard.constants as constants
+import ard.gen3D as gen3D
+import ard.util as util
+from ard.quantum import QuantumError
+from ard.node import Node
+from ard.pgen import Generate
 
 ###############################################################################
 

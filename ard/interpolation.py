@@ -17,8 +17,8 @@ import warnings
 import numpy as np
 from scipy import optimize
 
-import util
-from node import Node
+import ard.util as util
+from ard.node import Node
 
 ###############################################################################
 

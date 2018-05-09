@@ -15,8 +15,8 @@ import sys
 
 import numpy as np
 
-import constants
-import props
+import ard.constants as constants
+import ard.props as props
 
 ###############################################################################
 

@@ -19,11 +19,11 @@ from rmgpy.species import Species
 import rmgpy.molecule
 from rmgpy.data.thermo import ThermoDatabase
 
-import constants
-import props
-import util
-import node
-from quantum import QuantumError
+import ard.constants as constants
+import ard.props as props
+import ard.util as util
+import ard.node as node
+from ard.quantum import QuantumError
 
 ###############################################################################
 

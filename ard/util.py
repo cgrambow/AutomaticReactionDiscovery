@@ -16,7 +16,7 @@ import time
 
 import numpy as np
 
-from quantum import Gaussian, QChem, NWChem
+from ard.quantum import Gaussian, QChem, NWChem
 
 ###############################################################################
 

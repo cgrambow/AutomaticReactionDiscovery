@@ -14,8 +14,8 @@ import sys
 import numpy as np
 import pybel
 
-import props
-import gen3D
+import ard.props as props
+import ard.gen3D as gen3D
 
 ###############################################################################
 
